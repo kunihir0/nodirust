@@ -1,0 +1,37 @@
+[workspace]
+members = [
+    "crates/app",
+    "crates/rustplus",
+    "crates/push_receiver",
+]
+resolver = "2"
+
+[workspace.dependencies]
+tokio = { version = "1.52.3", default-features = false, features = ["rt-multi-thread", "macros", "net", "time", "sync", "fs"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+reqwest = { version = "0.12", features = ["json"] }
+prost = "0.13"
+tokio-rustls = "0.26"
+rustls-native-certs = "0.8"
+p256 = { version = "0.13", features = ["ecdsa", "ecdh"] }
+rand = { version = "0.8", features = ["std", "std_rng"] }
+hkdf = "0.13.0"
+aes-gcm = "0.11.0"
+base64 = "0.22.1"
+thiserror = "2.0.18"
+tracing = "0.1.44"
+tokio-util = { version = "0.7.18", features = ["codec"] }
+uuid = { version = "1.23.5", features = ["v4"] }
+bytes = "1.12.1"
+futures-util = "0.3.32"
+sha2 = "0.11.0"
+tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-native-roots"] }
+http = "1.4.2"
+
+[profile.release]
+opt-level = "z"     # Optimize for size
+lto = true          # Enable link-time optimization
+codegen-units = 1   # Maximize size reduction optimizations
+panic = "abort"     # Remove panic unwinding machinery
+strip = true        # Strip symbols from binary

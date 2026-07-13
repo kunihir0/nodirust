@@ -1,0 +1,6 @@
+[submodule "crates/rustplus"]
+	path = crates/rustplus
+	url = https://github.com/kunihir0/rustplus
+[submodule "crates/push_receiver"]
+	path = crates/push_receiver
+	url = https://github.com/kunihir0/push-receiver
