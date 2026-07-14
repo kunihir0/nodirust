@@ -1,3 +1,5 @@
+#![allow(clippy::collapsible_if)] // UI layouts often benefit from nested ifs for readability
+
 //! Egui settings and status dashboard.
 
 use crate::ui::tray::TrayMenu;
@@ -87,6 +89,7 @@ impl SettingsWindow {
 }
 
 impl eframe::App for SettingsWindow {
+    #[allow(clippy::too_many_lines)] // UI rendering requires monolithic layout flow
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Save ctx for background threads
         let mut ctx_lock = self.app_state.ui_context.lock().unwrap();
@@ -220,7 +223,7 @@ impl eframe::App for SettingsWindow {
         egui::CentralPanel::default().frame(central_frame).show(ctx, |ui| {
             let pending_pair = self.app_state.pending_pair_rx.borrow().clone();
             if let Some(server) = pending_pair {
-                self.show_pair_screen(ui, ctx, server);
+                self.show_pair_screen(ui, ctx, &server);
             } else {
                 match self.active_tab {
                     Tab::Dashboard => self.show_dashboard(ui),
@@ -346,6 +349,7 @@ impl SettingsWindow {
         ui.add_space(20.0);
 
         let servers = self.app_state.servers_rx.borrow().clone();
+        let statuses = self.app_state.server_statuses_rx.borrow().clone();
         
         if servers.is_empty() {
             ui.vertical_centered(|ui| {
@@ -360,6 +364,9 @@ impl SettingsWindow {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 let mut server_to_remove = None;
                 for (idx, server) in servers.iter().enumerate() {
+                    let ip_port = format!("{}:{}", server.ip, server.port);
+                    let is_connected = statuses.get(&ip_port).copied().unwrap_or(false);
+                    
                     // Draw Card
                     let card_frame = egui::Frame::none()
                         .fill(egui::Color32::from_rgb(10, 10, 10)) // #0a0a0a
@@ -370,10 +377,26 @@ impl SettingsWindow {
                     card_frame.show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.vertical(|ui| {
-                                ui.label(egui::RichText::new(format!("{}:{}", server.ip, server.port))
-                                    .color(egui::Color32::WHITE)
-                                    .size(15.0)
-                                    .strong());
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new(&ip_port)
+                                        .color(egui::Color32::WHITE)
+                                        .size(15.0)
+                                        .strong());
+                                        
+                                    // Status Indicator
+                                    let status_color = if is_connected {
+                                        egui::Color32::from_rgb(34, 197, 94) // Green
+                                    } else {
+                                        egui::Color32::from_rgb(239, 68, 68) // Red
+                                    };
+                                    let status_text = if is_connected { "Connected" } else { "Reconnecting..." };
+                                    
+                                    ui.add_space(8.0);
+                                    let (rect, _resp) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
+                                    ui.painter().circle_filled(rect.center(), 4.0, status_color);
+                                    ui.label(egui::RichText::new(status_text).color(status_color).size(12.0));
+                                });
+                                
                                 ui.add_space(4.0);
                                 ui.label(egui::RichText::new(format!("Player ID: {}", server.player_id))
                                     .color(egui::Color32::from_rgb(115, 115, 115))
@@ -407,7 +430,7 @@ impl SettingsWindow {
         }
     }
 
-    fn show_pair_screen(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context, server: crate::config::store::ServerConfig) {
+    fn show_pair_screen(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context, server: &crate::config::store::ServerConfig) {
         ui.vertical_centered(|ui| {
             ui.add_space(40.0);
             ui.heading(egui::RichText::new("New Server Pairing").color(egui::Color32::WHITE).size(20.0).strong());

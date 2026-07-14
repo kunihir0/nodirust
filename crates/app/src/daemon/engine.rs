@@ -1,3 +1,8 @@
+#![allow(clippy::collapsible_if)] // Nested ifs are cleaner for deep JSON optional unwrapping
+#![allow(clippy::cast_possible_truncation)] // Entity type truncation from 64 to 32 is acceptable here
+#![allow(clippy::map_entry)] // Entry API would require cloning the key for the log statement
+#![allow(clippy::duration_suboptimal_units)] // from_secs(60) is fine
+
 use crate::config::store::Store;
 use crate::daemon::events::DaemonEvent;
 use push_receiver::PushReceiver;
@@ -27,10 +32,10 @@ impl DaemonEngine {
         // We no longer fetch servers on startup since there is no centralized Facepunch API for it.
         // Paired servers are received over FCM push notifications and saved to config locally.
         // Load config to spawn rustplus websocket loops
-        let mut current_servers = Store::get_config().servers;
+        let initial_servers = Store::get_config().servers;
         let mut server_tasks: std::collections::HashMap<String, tokio::task::AbortHandle> = std::collections::HashMap::new();
 
-        for server in current_servers.clone() {
+        for server in initial_servers {
             let r_tx = self.event_tx.clone();
             let ip_port = format!("{}:{}", server.ip, server.port);
             let abort_handle = set.spawn(async move {
@@ -50,7 +55,7 @@ impl DaemonEngine {
                         break;
                     }
                 }
-                Ok(_) = self.servers_rx.changed() => {
+                Ok(()) = self.servers_rx.changed() => {
                     let new_servers = self.servers_rx.borrow().clone();
                     
                     // Stop removed servers
@@ -87,12 +92,12 @@ impl DaemonEngine {
                         }
                     }
                     
-                    current_servers = new_servers;
                 }
             }
         }
     }
 
+    #[allow(clippy::too_many_lines)] // FCM loop is monolithic by design
     async fn fcm_loop(event_tx: mpsc::Sender<DaemonEvent>) {
         let mut backoff = Duration::from_secs(1);
         let max_backoff = Duration::from_secs(60);
@@ -242,6 +247,15 @@ impl DaemonEngine {
                         if let Some(json) = &json_payload {
                             req_type = json.get("type").and_then(|v| v.as_str()).unwrap_or("").to_string();
                             
+                            // Infer type if missing
+                            if req_type.is_empty() {
+                                if json.get("entityId").is_some() && json.get("ip").is_some() {
+                                    req_type = "entity".to_string();
+                                } else if json.get("playerId").is_some() && json.get("playerToken").is_some() && json.get("ip").is_some() {
+                                    req_type = "server".to_string();
+                                }
+                            }
+                            
                             if let Some(ip) = json.get("ip").and_then(|v| v.as_str()) {
                                 server_ip = ip.to_string();
                                 if let Some(port) = json.get("port").and_then(|v| v.as_u64().map(|u| u as u16).or_else(|| v.as_str().and_then(|s| s.parse().ok()))) {
@@ -257,22 +271,25 @@ impl DaemonEngine {
                                                 };
                                                 let _ = event_tx.try_send(DaemonEvent::PairingRequest(server));
                                                 is_pairing = true;
-                                            } else if req_type == "entity" {
-                                                if let Some(entity_id) = json.get("entityId").and_then(|v| v.as_u64().map(|u| u as u32).or_else(|| v.as_str().and_then(|s| s.parse().ok()))) {
-                                                    if let Some(entity_type) = json.get("entityType").and_then(|v| v.as_u64().map(|u| u as u32).or_else(|| v.as_str().and_then(|s| s.parse().ok()))) {
-                                                        let entity_name = json.get("entityName").and_then(|v| v.as_str()).unwrap_or("Smart Device").to_string();
-                                                        let device = crate::config::store::DeviceConfig {
-                                                            entity_id,
-                                                            entity_name,
-                                                            entity_type,
-                                                            server_ip: ip.to_string(),
-                                                            server_port: port,
-                                                            enabled: true,
-                                                        };
-                                                        let _ = event_tx.try_send(DaemonEvent::EntityPairingRequest(device));
-                                                        is_pairing = true;
-                                                    }
-                                                }
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Entity pairing doesn't necessarily need playerToken in the same way, but it usually comes with ip/port
+                                    if req_type == "entity" {
+                                        if let Some(entity_id) = json.get("entityId").and_then(|v| v.as_u64().map(|u| u as u32).or_else(|| v.as_str().and_then(|s| s.parse().ok()))) {
+                                            if let Some(entity_type) = json.get("entityType").and_then(|v| v.as_u64().map(|u| u as u32).or_else(|| v.as_str().and_then(|s| s.parse().ok()))) {
+                                                let entity_name = json.get("entityName").and_then(|v| v.as_str()).unwrap_or("Smart Device").to_string();
+                                                let device = crate::config::store::DeviceConfig {
+                                                    entity_id,
+                                                    entity_name,
+                                                    entity_type,
+                                                    server_ip: ip.to_string(),
+                                                    server_port: port,
+                                                    enabled: true,
+                                                };
+                                                let _ = event_tx.try_send(DaemonEvent::EntityPairingRequest(device));
+                                                is_pairing = true;
                                             }
                                         }
                                     }
@@ -288,12 +305,12 @@ impl DaemonEngine {
                         // Often FCM sends `title` and `message` in `app_data`.
                         for data in &notification.app_data {
                             if data.key == "title" {
-                                title = data.value.clone();
+                                title.clone_from(&data.value);
                             } else if data.key == "message" {
-                                body = data.value.clone();
+                                body.clone_from(&data.value);
                             } else if data.key == "body" && json_payload.is_none() {
                                 // Only use 'body' as the notification body if it's not JSON
-                                body = data.value.clone();
+                                body.clone_from(&data.value);
                             }
                         }
 
@@ -348,9 +365,10 @@ impl DaemonEngine {
     ) {
         let mut backoff = Duration::from_secs(1);
         let max_backoff = Duration::from_secs(30);
+        let ip_port = format!("{}:{}", server.ip, server.port);
 
         loop {
-            tracing::info!("Connecting to Rust+ Server: {}:{}", server.ip, server.port);
+            tracing::info!("Connecting to Rust+ Server: {}", ip_port);
 
             let mut client = rustplus::RustPlusClient::new(
                 server.ip.clone(),
@@ -361,8 +379,12 @@ impl DaemonEngine {
             );
 
             match client.connect().await {
-                Ok(_) => {
-                    tracing::info!("Connected to Rust+ Server {}:{}", server.ip, server.port);
+                Ok(()) => {
+                    tracing::info!("Connected to Rust+ Server {}", ip_port);
+                    let _ = event_tx.try_send(DaemonEvent::ServerConnectionStatusChanged {
+                        server_ip_port: ip_port.clone(),
+                        connected: true,
+                    });
                     backoff = Duration::from_secs(1);
 
                     if let Some(mut broadcast_rx) = client.take_broadcast_receiver() {
@@ -392,6 +414,10 @@ impl DaemonEngine {
                         "Rust+ connection dropped for {}. Reconnecting...",
                         server.ip
                     );
+                    let _ = event_tx.try_send(DaemonEvent::ServerConnectionStatusChanged {
+                        server_ip_port: ip_port.clone(),
+                        connected: false,
+                    });
                 }
                 Err(e) => {
                     tracing::error!(
@@ -399,6 +425,10 @@ impl DaemonEngine {
                         e,
                         backoff
                     );
+                    let _ = event_tx.try_send(DaemonEvent::ServerConnectionStatusChanged {
+                        server_ip_port: ip_port.clone(),
+                        connected: false,
+                    });
                     sleep(backoff).await;
                     backoff = std::cmp::min(backoff * 2, max_backoff);
                 }

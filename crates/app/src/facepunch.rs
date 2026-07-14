@@ -14,6 +14,9 @@ impl FacepunchClient {
     }
 
     /// Registers the FCM push token with Facepunch so this device receives notifications
+    /// 
+    /// # Errors
+    /// Returns an error if the request fails or serialization fails.
     pub async fn register_push(&self, expo_token: &str) -> Result<(), reqwest::Error> {
         let url = "https://companion-rust.facepunch.com/api/push/register";
 

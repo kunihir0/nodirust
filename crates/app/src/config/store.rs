@@ -89,12 +89,6 @@ impl Store {
         config.servers
     }
 
-    pub fn set_servers(servers: Vec<ServerConfig>) -> Result<(), String> {
-        let mut config = Self::get_config();
-        config.servers = servers;
-        Self::save_config(&config).map_err(|e| e.to_string())
-    }
-
     pub fn get_devices() -> Vec<DeviceConfig> {
         let config = Self::get_config();
         config.devices

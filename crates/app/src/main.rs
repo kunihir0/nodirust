@@ -1,4 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![allow(clippy::multiple_crate_versions)]
 
 mod app_state;
 mod config;
@@ -11,6 +12,7 @@ use eframe::egui;
 use std::thread;
 use tracing_subscriber::EnvFilter;
 
+#[allow(clippy::too_many_lines)] // Main wiring requires sequence of tokio/UI setups
 fn main() -> eframe::Result {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -48,6 +50,8 @@ fn main() -> eframe::Result {
     
     let (pending_pair_tx, pending_pair_rx) = tokio::sync::watch::channel::<Option<crate::config::store::ServerConfig>>(None);
 
+    let (server_statuses_tx, server_statuses_rx) = tokio::sync::watch::channel(std::collections::HashMap::new());
+
     let app_state = crate::app_state::AppState::new(
         fcm_status_rx,
         steam_status_rx,
@@ -57,7 +61,9 @@ fn main() -> eframe::Result {
         devices_rx,
         devices_tx,
         pending_pair_rx,
-        pending_pair_tx.clone()
+        pending_pair_tx.clone(),
+        server_statuses_rx,
+        server_statuses_tx.clone()
     );
 
     let app_state_bg = app_state.clone();
@@ -92,8 +98,8 @@ fn main() -> eframe::Result {
                             sender,
                             message,
                         } => {
-                            let title = format!("Team Chat ({})", server_ip);
-                            let body = format!("{}: {}", sender, message);
+                            let title = format!("Team Chat ({server_ip})");
+                            let body = format!("{sender}: {message}");
                             crate::notify::Notifier::push(&title, &body);
                         }
                         crate::daemon::events::DaemonEvent::PairingRequest(server) => {
@@ -133,7 +139,7 @@ fn main() -> eframe::Result {
                                 let _ = app_state_clone.devices_tx.send(devices);
                                 
                                 let title = "Rust+ Device Paired".to_string();
-                                let body = format!("Successfully paired with {}!", name);
+                                let body = format!("Successfully paired with {name}!");
                                 crate::notify::Notifier::push(&title, &body);
                                 
                                 // Refresh UI
@@ -146,6 +152,17 @@ fn main() -> eframe::Result {
                         crate::daemon::events::DaemonEvent::ConnectionStatusChanged(connected) => {
                             tracing::info!("FCM Connection status changed: {}", connected);
                             let _ = fcm_status_tx.send(connected);
+                        }
+                        crate::daemon::events::DaemonEvent::ServerConnectionStatusChanged { server_ip_port, connected } => {
+                            let mut statuses = app_state_clone.server_statuses_rx.borrow().clone();
+                            statuses.insert(server_ip_port, connected);
+                            let _ = app_state_clone.server_statuses_tx.send(statuses);
+                            
+                            // Refresh UI
+                            let ctx_lock = app_state_clone.ui_context.lock().unwrap();
+                            if let Some(ctx) = &*ctx_lock {
+                                ctx.request_repaint();
+                            }
                         }
                     }
                 }
@@ -165,13 +182,25 @@ fn main() -> eframe::Result {
         std::process::exit(1);
     }
 
-    // 2. Start the eframe/winit event loop on the main thread.
+    let icon_data = include_bytes!("../assets/app.ico");
+    let image = image::load_from_memory_with_format(icon_data, image::ImageFormat::Ico)
+        .expect("Failed to parse app.ico")
+        .into_rgba8();
+    let (width, height) = image.dimensions();
+    let rgba = image.into_raw();
+    let icon = std::sync::Arc::new(egui::IconData {
+        rgba,
+        width,
+        height,
+    });
+
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([550.0, 500.0])
             .with_title("NODIrust")
             .with_decorations(false)
-            .with_transparent(true),
+            .with_transparent(true)
+            .with_icon(icon),
         ..Default::default()
     };
 

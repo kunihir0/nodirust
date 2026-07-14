@@ -13,4 +13,8 @@ pub enum DaemonEvent {
     },
     PairingRequest(crate::config::store::ServerConfig),
     EntityPairingRequest(crate::config::store::DeviceConfig),
+    ServerConnectionStatusChanged {
+        server_ip_port: String,
+        connected: bool,
+    },
 }

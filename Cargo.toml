@@ -10,12 +10,12 @@ resolver = "2"
 tokio = { version = "1.52.3", default-features = false, features = ["rt-multi-thread", "macros", "net", "time", "sync", "fs"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-reqwest = { version = "0.12", features = ["json"] }
-prost = "0.13"
-tokio-rustls = "0.26"
-rustls-native-certs = "0.8"
-p256 = { version = "0.13", features = ["ecdsa", "ecdh"] }
-rand = { version = "0.8", features = ["std", "std_rng"] }
+reqwest = { version = "0.13.4", features = ["json"] }
+prost = "0.14.4"
+tokio-rustls = "0.26.4"
+rustls-native-certs = "0.8.4"
+p256 = { version = "0.14.0", features = ["ecdsa", "ecdh"] }
+rand = { version = "0.10.2", features = ["std", "std_rng"] }
 hkdf = "0.13.0"
 aes-gcm = "0.11.0"
 base64 = "0.22.1"
@@ -24,7 +24,7 @@ tracing = "0.1.44"
 tokio-util = { version = "0.7.18", features = ["codec"] }
 uuid = { version = "1.23.5", features = ["v4"] }
 bytes = "1.12.1"
-futures-util = "0.3.32"
+futures-util = { version = "0.3.32", features = ["sink"] }
 sha2 = "0.11.0"
 tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-native-roots"] }
 http = "1.4.2"
@@ -35,3 +35,19 @@ lto = true          # Enable link-time optimization
 codegen-units = 1   # Maximize size reduction optimizations
 panic = "abort"     # Remove panic unwinding machinery
 strip = true        # Strip symbols from binary
+
+[workspace.lints.clippy]
+# Suppressing because multiple versions of transitive dependencies (e.g. core-foundation) are difficult to perfectly align without forcing specific versions of all crates.
+multiple_crate_versions = { level = "allow", priority = 1 }
+# Suppressing pedantic documentation requirements for internal apps
+missing_errors_doc = { level = "allow", priority = 1 }
+missing_panics_doc = { level = "allow", priority = 1 }
+# Suppressing subjective style preferences from pedantic
+collapsible_if = { level = "allow", priority = 1 }
+too_many_lines = { level = "allow", priority = 1 }
+uninlined_format_args = { level = "allow", priority = 1 }
+ignored_unit_patterns = { level = "allow", priority = 1 }
+assigning_clones = { level = "allow", priority = 1 }
+needless_pass_by_value = { level = "allow", priority = 1 }
+implicit_clone = { level = "allow", priority = 1 }
+cast_possible_truncation = { level = "allow", priority = 1 }

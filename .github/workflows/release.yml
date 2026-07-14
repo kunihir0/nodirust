@@ -54,8 +54,8 @@ jobs:
           cp "target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}" "NODIrust.app/Contents/MacOS/NODIrust"
           
           # Convert icon if present
-          if [ -f "assets/app.ico" ]; then
-            sips -s format icns "assets/app.ico" --out "NODIrust.app/Contents/Resources/AppIcon.icns" || true
+          if [ -f "crates/app/assets/app.ico" ]; then
+            sips -s format icns "crates/app/assets/app.ico" --out "NODIrust.app/Contents/Resources/AppIcon.icns" || true
           fi
           
           # Create a basic Info.plist

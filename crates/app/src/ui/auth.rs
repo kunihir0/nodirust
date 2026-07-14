@@ -73,13 +73,13 @@ impl ApplicationHandler<()> for AuthApp {
                     allowed
                 })
                 .with_initialization_script(
-                    r#"
+                    r"
                     window.ReactNativeWebView = {
                         postMessage: function(msg) {
                             window.ipc.postMessage(typeof msg === 'string' ? msg : JSON.stringify(msg));
                         }
                     };
-                "#,
+                ",
                 )
                 .build(&window)
                 .unwrap();

@@ -2,6 +2,15 @@
 name = "app"
 version = "0.1.0"
 edition = "2024"
+description = "Rust+ Companion App"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/nodirust/nodirust"
+readme = "../../README.md"
+keywords = ["rustplus", "companion", "desktop"]
+categories = ["gui"]
+
+[lints]
+workspace = true
 
 [dependencies]
 rustplus = { path = "../rustplus" }
@@ -10,7 +19,7 @@ push-receiver = { path = "../push_receiver" }
 # Async / Core
 tokio.workspace = true
 tracing.workspace = true
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -27,6 +36,7 @@ winit = "0.30"
 directories = "6.0.0"
 uuid = { workspace = true, features = ["v4"] }
 mac-notification-sys = "0.6.15"
+image = { version = "0.25.10", default-features = false, features = ["ico"] }
 
 [build-dependencies]
-winres = "0.1"
+winres = "0.1.12"
