@@ -125,4 +125,16 @@ impl Store {
         }
         Ok(())
     }
+
+    pub fn get_ipc_socket_path() -> std::path::PathBuf {
+        if let Some(proj_dirs) = directories::ProjectDirs::from("com", "nodirust", "nodirust") {
+            // Use runtime_dir if available (e.g. /run/user/1000 on Linux, missing on macOS)
+            // fallback to config_dir (e.g. ~/Library/Application Support/com.nodirust.nodirust)
+            let dir = proj_dirs.runtime_dir().unwrap_or_else(|| proj_dirs.config_dir());
+            let _ = std::fs::create_dir_all(dir);
+            dir.join("nodirust.sock")
+        } else {
+            std::path::PathBuf::from("/tmp/nodirust.sock")
+        }
+    }
 }

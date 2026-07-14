@@ -2,9 +2,7 @@
 
 //! Egui settings and status dashboard.
 
-use crate::ui::tray::TrayMenu;
 use eframe::egui;
-use tray_icon::{TrayIcon, TrayIconEvent, menu::MenuEvent};
 
 use crate::app_state::AppState;
 
@@ -16,8 +14,6 @@ enum Tab {
 }
 
 pub struct SettingsWindow {
-    _tray_icon: TrayIcon,
-    tray_menu: TrayMenu,
     app_state: AppState,
     active_tab: Tab,
 }
@@ -77,11 +73,9 @@ pub fn apply_theme(ctx: &egui::Context) {
 
 impl SettingsWindow {
     pub fn new(cc: &eframe::CreationContext<'_>, app_state: AppState) -> Self {
-        let (tray_icon, tray_menu) = crate::ui::tray::setup_tray();
         apply_theme(&cc.egui_ctx);
+        
         Self {
-            _tray_icon: tray_icon,
-            tray_menu,
             app_state,
             active_tab: Tab::Dashboard,
         }
@@ -98,39 +92,9 @@ impl eframe::App for SettingsWindow {
         }
         drop(ctx_lock);
 
-        // Handle Tray Icon Events
-        if let Ok(event) = TrayIconEvent::receiver().try_recv() {
-            tracing::info!("Tray icon event: {:?}", event);
-            if let tray_icon::TrayIconEvent::Click { button: tray_icon::MouseButton::Left, button_state: tray_icon::MouseButtonState::Up, .. } = event {
-                self.app_state.is_ui_visible.store(true, std::sync::atomic::Ordering::SeqCst);
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-            }
-            if let tray_icon::TrayIconEvent::Click { button: tray_icon::MouseButton::Left, button_state: tray_icon::MouseButtonState::Down, .. } = event {
-                self.app_state.is_ui_visible.store(true, std::sync::atomic::Ordering::SeqCst);
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-            }
-        }
-
-        // Handle Tray Menu Events
-        if let Ok(event) = MenuEvent::receiver().try_recv() {
-            tracing::info!("Tray menu event: {:?}", event);
-            if event.id.0 == self.tray_menu.quit_id {
-                // Force exit the process when explicitly quitting from the tray
-                std::process::exit(0);
-            } else if event.id.0 == self.tray_menu.dashboard_id {
-                self.app_state.is_ui_visible.store(true, std::sync::atomic::Ordering::SeqCst);
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-            }
-        }
-        
-        // Intercept native close requests (like Alt+F4) and just hide the window
+        // In the new architecture, closing the window simply exits the UI process
         if ctx.input(|i| i.viewport().close_requested()) {
-            self.app_state.is_ui_visible.store(false, std::sync::atomic::Ordering::SeqCst);
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            std::process::exit(0);
         }
 
         // Force background fill to prevent any transparent gaps between panels
@@ -161,8 +125,7 @@ impl eframe::App for SettingsWindow {
                             .rounding(12.0);
                         
                         if ui.add_sized([24.0, 24.0], close_btn).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                            // Hide to tray
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                            std::process::exit(0);
                         }
                         
                         let min_btn = egui::Button::new(egui::RichText::new("-").size(16.0).strong().color(egui::Color32::from_rgb(150, 150, 150)))
@@ -233,8 +196,7 @@ impl eframe::App for SettingsWindow {
             }
         });
 
-        // Wake up UI loop periodically or wait for events
-        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        // eframe will now sleep when nothing is happening instead of spinning at 10Hz
     }
 }
 
@@ -303,8 +265,9 @@ impl SettingsWindow {
                         .fill(egui::Color32::WHITE)
                         .stroke(egui::Stroke::NONE);
                     if ui.add_sized([80.0, 32.0], btn).clicked() {
-                        let _ = crate::config::store::Store::delete_steam_token();
-                        let _ = self.app_state.steam_tx.send(false);
+                        if let Some(tx) = &self.app_state.command_tx {
+                            let _ = tx.try_send(crate::ipc::IpcCommand::SetSteamToken(None));
+                        }
                     }
                 } else {
                     let btn = egui::Button::new(egui::RichText::new("Login").color(egui::Color32::WHITE))
@@ -314,11 +277,14 @@ impl SettingsWindow {
                         if let Ok(exe) = std::env::current_exe() {
                             match std::process::Command::new(exe).arg("--auth").spawn() {
                                 Ok(mut child) => {
-                                    let steam_tx = self.app_state.steam_tx.clone();
+                                    let command_tx = self.app_state.command_tx.clone();
                                     std::thread::spawn(move || {
                                         let _ = child.wait();
-                                        let is_logged_in = crate::config::store::Store::get_steam_token().is_ok();
-                                        let _ = steam_tx.send(is_logged_in);
+                                        if let Ok(token) = crate::config::store::Store::get_steam_token() {
+                                            if let Some(tx) = &command_tx {
+                                                let _ = tx.try_send(crate::ipc::IpcCommand::SetSteamToken(Some(token)));
+                                            }
+                                        }
                                     });
                                 }
                                 Err(e) => tracing::error!("Failed to spawn auth window: {}", e),
@@ -338,10 +304,9 @@ impl SettingsWindow {
                     .fill(egui::Color32::from_rgb(153, 27, 27)) // Destructive dark red
                     .stroke(egui::Stroke::NONE);
                 if ui.add_sized([90.0, 32.0], btn).clicked() {
-                    let mut config = crate::config::store::Store::get_config();
-                    config.servers.clear();
-                    let _ = crate::config::store::Store::save_config(&config);
-                    let _ = self.app_state.servers_tx.send(config.servers);
+                    if let Some(tx) = &self.app_state.command_tx {
+                        let _ = tx.try_send(crate::ipc::IpcCommand::UpdateServers(vec![]));
+                    }
                 }
             });
         });
@@ -418,12 +383,10 @@ impl SettingsWindow {
                 }
 
                 if let Some(idx) = server_to_remove {
-                    let mut config = crate::config::store::Store::get_config();
-                    config.servers.remove(idx);
-                    if let Err(e) = crate::config::store::Store::save_config(&config) {
-                        tracing::error!("Failed to save config after removing server: {}", e);
-                    } else {
-                        let _ = self.app_state.servers_tx.send(config.servers);
+                    let mut servers = self.app_state.servers_rx.borrow().clone();
+                    servers.remove(idx);
+                    if let Some(tx) = &self.app_state.command_tx {
+                        let _ = tx.try_send(crate::ipc::IpcCommand::UpdateServers(servers));
                     }
                 }
             });
@@ -466,7 +429,9 @@ impl SettingsWindow {
                     .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(40, 40, 40)));
                     
                 if ui.add_sized([120.0, 40.0], btn_decline).clicked() {
-                    let _ = self.app_state.pending_pair_tx.send(None);
+                    if let Some(tx) = &self.app_state.command_tx {
+                        let _ = tx.try_send(crate::ipc::IpcCommand::DeclinePairing);
+                    }
                 }
                 
                 ui.add_space(20.0);
@@ -476,15 +441,9 @@ impl SettingsWindow {
                     .stroke(egui::Stroke::NONE);
                     
                 if ui.add_sized([120.0, 40.0], btn_accept).clicked() {
-                    let mut config = crate::config::store::Store::get_config();
-                    config.servers.push(server.clone());
-                    if let Err(e) = crate::config::store::Store::save_config(&config) {
-                        tracing::error!("Failed to save config after pairing server: {}", e);
-                    } else {
-                        let _ = self.app_state.servers_tx.send(config.servers);
+                    if let Some(tx) = &self.app_state.command_tx {
+                        let _ = tx.try_send(crate::ipc::IpcCommand::AcceptPairing(server.clone()));
                     }
-                    
-                    let _ = self.app_state.pending_pair_tx.send(None);
                     self.active_tab = Tab::Servers;
                 }
             });
@@ -499,10 +458,9 @@ impl SettingsWindow {
                     .fill(egui::Color32::from_rgb(153, 27, 27))
                     .stroke(egui::Stroke::NONE);
                 if ui.add_sized([90.0, 32.0], btn).clicked() {
-                    let mut config = crate::config::store::Store::get_config();
-                    config.devices.clear();
-                    let _ = crate::config::store::Store::save_config(&config);
-                    let _ = self.app_state.devices_tx.send(config.devices);
+                    if let Some(tx) = &self.app_state.command_tx {
+                        let _ = tx.try_send(crate::ipc::IpcCommand::UpdateDevices(vec![]));
+                    }
                 }
             });
         });
@@ -576,8 +534,9 @@ impl SettingsWindow {
                 }
 
                 if changed {
-                    let _ = crate::config::store::Store::set_devices(devices.clone());
-                    let _ = self.app_state.devices_tx.send(devices);
+                    if let Some(tx) = &self.app_state.command_tx {
+                        let _ = tx.try_send(crate::ipc::IpcCommand::UpdateDevices(devices));
+                    }
                 }
             });
         }

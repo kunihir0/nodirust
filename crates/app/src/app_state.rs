@@ -6,6 +6,7 @@ use tokio::sync::watch;
 #[derive(Clone)]
 pub struct AppState {
     pub fcm_connected: watch::Receiver<bool>,
+    pub fcm_tx: std::sync::Arc<watch::Sender<bool>>,
     pub steam_logged_in: watch::Receiver<bool>,
     pub steam_tx: std::sync::Arc<watch::Sender<bool>>,
     pub servers_rx: watch::Receiver<Vec<crate::config::store::ServerConfig>>,
@@ -17,13 +18,14 @@ pub struct AppState {
     pub server_statuses_rx: watch::Receiver<std::collections::HashMap<String, bool>>,
     pub server_statuses_tx: std::sync::Arc<watch::Sender<std::collections::HashMap<String, bool>>>,
     pub ui_context: std::sync::Arc<std::sync::Mutex<Option<eframe::egui::Context>>>,
-    pub is_ui_visible: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub command_tx: Option<tokio::sync::mpsc::Sender<crate::ipc::IpcCommand>>,
 }
 
 impl AppState {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         fcm_connected: watch::Receiver<bool>,
+        fcm_tx: watch::Sender<bool>,
         steam_logged_in: watch::Receiver<bool>,
         steam_tx: watch::Sender<bool>,
         servers_rx: watch::Receiver<Vec<crate::config::store::ServerConfig>>,
@@ -34,9 +36,11 @@ impl AppState {
         pending_pair_tx: watch::Sender<Option<crate::config::store::ServerConfig>>,
         server_statuses_rx: watch::Receiver<std::collections::HashMap<String, bool>>,
         server_statuses_tx: watch::Sender<std::collections::HashMap<String, bool>>,
+        command_tx: Option<tokio::sync::mpsc::Sender<crate::ipc::IpcCommand>>,
     ) -> Self {
         Self {
             fcm_connected,
+            fcm_tx: std::sync::Arc::new(fcm_tx),
             steam_logged_in,
             steam_tx: std::sync::Arc::new(steam_tx),
             servers_rx,
@@ -48,7 +52,7 @@ impl AppState {
             server_statuses_rx,
             server_statuses_tx: std::sync::Arc::new(server_statuses_tx),
             ui_context: std::sync::Arc::new(std::sync::Mutex::new(None)),
-            is_ui_visible: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            command_tx,
         }
     }
 }
