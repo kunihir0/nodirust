@@ -200,6 +200,23 @@ impl DaemonEngine {
                             }
                         }
 
+                        // Ignore old notifications (e.g., older than 5 minutes)
+                        if let Some(sent) = notification.sent {
+                            let now_ms = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as i64;
+                            // If `sent` is smaller than 20 billion, it's likely in seconds, so multiply by 1000
+                            let sent_ms = if sent < 20_000_000_000 { sent * 1000 } else { sent };
+                            let age_ms = now_ms.saturating_sub(sent_ms);
+                            
+                            // 5 minutes in ms = 300_000
+                            if age_ms > 300_000 {
+                                tracing::info!("Ignoring old notification ({} ms old)", age_ms);
+                                continue;
+                            }
+                        }
+
                         let mut title = "Rust+".to_string();
                         let mut body = "Unknown event".to_string();
 
