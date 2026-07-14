@@ -8,7 +8,7 @@ impl Notifier {
         notification.summary(title).body(body);
         
         #[cfg(target_os = "windows")]
-        notification.appname("Rust+ Companion");
+        notification.app_id("NODIrust");
 
         if let Err(e) = notification.show() {
             tracing::error!("Failed to show notification: {}", e);
