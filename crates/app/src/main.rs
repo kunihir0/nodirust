@@ -69,7 +69,7 @@ fn main() -> eframe::Result {
     let app_state_bg = app_state.clone();
 
     thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_multi_thread()
+        let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .expect("Failed to build tokio runtime");
