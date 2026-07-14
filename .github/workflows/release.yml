@@ -98,7 +98,8 @@ jobs:
       - name: Package Windows
         if: runner.os == 'Windows'
         run: |
-          Compress-Archive -Path "target\${{ matrix.platform.target }}\release\${{ matrix.platform.bin }}" -DestinationPath "${{ matrix.platform.name }}"
+          Rename-Item -Path "target\${{ matrix.platform.target }}\release\${{ matrix.platform.bin }}" -NewName "NODIrust.exe"
+          Compress-Archive -Path "target\${{ matrix.platform.target }}\release\NODIrust.exe" -DestinationPath "${{ matrix.platform.name }}"
           
       - name: Upload artifact
         uses: actions/upload-artifact@v7
