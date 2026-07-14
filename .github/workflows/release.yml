@@ -79,6 +79,9 @@ jobs:
           </plist>
           EOF
           
+          # Apple Silicon requires at least an ad-hoc signature
+          codesign --force --deep --sign - "NODIrust.app"
+          
           export HOMEBREW_NO_REQUIRE_TAP_TRUST=1
           brew install create-dmg
           create-dmg \
