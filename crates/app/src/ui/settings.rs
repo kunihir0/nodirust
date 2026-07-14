@@ -48,18 +48,18 @@ pub fn apply_theme(ctx: &egui::Context) {
 
     // --- 3. Widget States ---
     visuals.widgets.inactive.bg_fill = btn_bg;
-    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, border_color);
-    visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, primary_text);
+    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0_f32, border_color);
+    visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0_f32, primary_text);
     visuals.widgets.inactive.rounding = egui::Rounding::same(6.0);
 
     visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(26, 26, 26); // #1a1a1a
-    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, border_color);
-    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, accent_white);
+    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0_f32, border_color);
+    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0_f32, accent_white);
     visuals.widgets.hovered.rounding = egui::Rounding::same(6.0);
 
     visuals.widgets.active.bg_fill = egui::Color32::from_rgb(40, 40, 40);
-    visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, border_color);
-    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, accent_white);
+    visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0_f32, border_color);
+    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0_f32, accent_white);
     visuals.widgets.active.rounding = egui::Rounding::same(6.0);
 
     style.visuals = visuals;
@@ -180,7 +180,7 @@ impl eframe::App for SettingsWindow {
         let sidebar_frame = egui::Frame::none()
             .fill(egui::Color32::BLACK) // #000000
             .inner_margin(egui::Margin::same(16.0))
-            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(31, 31, 31)));
+            .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(31, 31, 31)));
 
         egui::SidePanel::left("nav_panel").resizable(false).frame(sidebar_frame).show(ctx, |ui| {
             ui.add_space(10.0);
@@ -309,7 +309,7 @@ impl SettingsWindow {
                 } else {
                     let btn = egui::Button::new(egui::RichText::new("Login").color(egui::Color32::WHITE))
                         .fill(egui::Color32::from_rgb(20, 20, 20))
-                        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(31, 31, 31)));
+                        .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(31, 31, 31)));
                     if ui.add_sized([80.0, 32.0], btn).clicked() {
                         if let Ok(exe) = std::env::current_exe() {
                             match std::process::Command::new(exe).arg("--auth").spawn() {
@@ -370,7 +370,7 @@ impl SettingsWindow {
                     // Draw Card
                     let card_frame = egui::Frame::none()
                         .fill(egui::Color32::from_rgb(10, 10, 10)) // #0a0a0a
-                        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(31, 31, 31))) // #1f1f1f
+                        .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(31, 31, 31))) // #1f1f1f
                         .rounding(8.0)
                         .inner_margin(16.0);
 
@@ -406,7 +406,7 @@ impl SettingsWindow {
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 let btn = egui::Button::new(egui::RichText::new("Unpair").color(egui::Color32::from_rgb(239, 68, 68)))
                                     .fill(egui::Color32::from_rgb(20, 20, 20)) // #141414
-                                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(127, 29, 29)));
+                                    .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(127, 29, 29)));
                                 
                                 if ui.add_sized([80.0, 32.0], btn).clicked() {
                                     server_to_remove = Some(idx);
@@ -443,7 +443,7 @@ impl SettingsWindow {
             
             let card_frame = egui::Frame::none()
                 .fill(egui::Color32::from_rgb(15, 15, 15)) // slightly lighter background for emphasis
-                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(40, 40, 40)))
+                .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(40, 40, 40)))
                 .rounding(8.0)
                 .inner_margin(24.0);
 
@@ -463,7 +463,7 @@ impl SettingsWindow {
             ui.horizontal_centered(|ui| {
                 let btn_decline = egui::Button::new(egui::RichText::new("Decline").color(egui::Color32::from_rgb(240, 240, 240)))
                     .fill(egui::Color32::from_rgb(26, 26, 26))
-                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(40, 40, 40)));
+                    .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(40, 40, 40)));
                     
                 if ui.add_sized([120.0, 40.0], btn_decline).clicked() {
                     let _ = self.app_state.pending_pair_tx.send(None);
@@ -528,7 +528,7 @@ impl SettingsWindow {
                 for (idx, device) in devices.iter_mut().enumerate() {
                     let card_frame = egui::Frame::none()
                         .fill(egui::Color32::from_rgb(10, 10, 10))
-                        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(31, 31, 31)))
+                        .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(31, 31, 31)))
                         .rounding(8.0)
                         .inner_margin(16.0);
 
@@ -548,7 +548,7 @@ impl SettingsWindow {
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 let btn = egui::Button::new(egui::RichText::new("Unpair").color(egui::Color32::from_rgb(239, 68, 68)))
                                     .fill(egui::Color32::from_rgb(20, 20, 20))
-                                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(127, 29, 29)));
+                                    .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(127, 29, 29)));
                                 
                                 if ui.add_sized([80.0, 32.0], btn).clicked() {
                                     device_to_remove = Some(idx);

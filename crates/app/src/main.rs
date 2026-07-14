@@ -110,22 +110,7 @@ fn main() -> eframe::Result {
                                 let title = "Rust+ Server Pairing".to_string();
                                 let body = format!("New pairing request for {}:{}. Open dashboard to accept.", server.ip, server.port);
                                 
-                                if let Some(handle) = crate::notify::Notifier::push(&title, &body) {
-                                    let ui_ctx_arc = app_state_clone.ui_context.clone();
-                                    let is_ui_visible = app_state_clone.is_ui_visible.clone();
-                                    
-                                    tokio::task::spawn_blocking(move || {
-                                        handle.wait_for_action(|_action| {
-                                            tracing::info!("Notification clicked!");
-                                            let ctx_lock = ui_ctx_arc.lock().unwrap();
-                                            if let Some(ctx) = &*ctx_lock {
-                                                is_ui_visible.store(true, std::sync::atomic::Ordering::SeqCst);
-                                                ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Visible(true));
-                                                ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Focus);
-                                            }
-                                        });
-                                    });
-                                }
+                                crate::notify::Notifier::push(&title, &body);
                             }
                         }
                         crate::daemon::events::DaemonEvent::EntityPairingRequest(device) => {
