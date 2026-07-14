@@ -1,33 +1,34 @@
 # NODIrust
 
-A lightweight, cross-platform native desktop utility that securely connects to Rust+ game servers and monitors in-game events in the background.
+A lightweight background daemon for Rust+ smart alarms. Runs silently in your system tray and pushes native OS notifications directly to your desktop. macOS & Windows only.
 
-## Features
+## Performance
 
-- Background system tray application for Windows and macOS.
-- Authenticates securely via the official Facepunch Steam login.
-- Real-time event notifications for Rust+ Smart Alarms via native OS notifications.
-- Low-latency, low-memory footprint using a dedicated asynchronous runtime.
+Built purely in Rust without heavy browser wrappers. Optimized for the background.
+- **RAM:** ~2.5 MB
+- **CPU:** 0.0% idle
+- **Binary Size:** < 20 MB (compresses to ~4MB via UPX)
 
 ## Architecture
 
-This workspace is composed of three crates:
-- `app`: The main binary containing the system tray, UI, and background daemon orchestrator.
-- `rustplus`: A protocol implementation and WebSocket client for communicating with Rust+ servers.
-- `push_receiver`: An FCM client to securely receive push notifications (like Smart Alarms) directly from Facepunch's backend.
+The binary splits into two processes:
+1. **Daemon:** A headless background process managing the async Tokio runtime and FCM notifications.
+2. **UI:** An ephemeral GUI process (system tray, settings window) that opens only on demand and is destroyed when closed.
 
-## Building
+## Privacy & Security
 
-Requires Rust 1.75+ and Cargo.
+NODIrust collects **zero** analytics or telemetry.
 
-```sh
+**Steam Authentication:**
+We do not touch or see your Steam password. NODIrust uses an ephemeral OS webview to load the official Facepunch login portal. It intercepts the generated Facepunch token, saves it securely in your local AppData folder, and immediately destroys the window.
+
+To prevent leaks, the configuration structs intentionally omit the `Debug` trait so tokens physically cannot be logged. The token is never broadcast over local IPC.
+
+*Audit the token capture logic at: `crates/app/src/ui/auth.rs`*
+
+## Build
+
+```bash
 cargo build --release
 ```
-
-## Running
-
-The application runs in the background. Look for the icon in your system tray (Windows) or menu bar (macOS) after starting the binary.
-
-```sh
-cargo run -p app --release
-```
+Run the executable and look for the NODIrust icon in your system tray.

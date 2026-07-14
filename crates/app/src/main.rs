@@ -9,6 +9,9 @@ mod ipc;
 mod notify;
 mod ui;
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use eframe::egui;
 use std::thread;
 use tracing_subscriber::EnvFilter;

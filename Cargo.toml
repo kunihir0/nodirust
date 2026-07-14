@@ -7,10 +7,10 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-tokio = { version = "1.52.3", default-features = false, features = ["rt", "macros", "net", "time", "sync", "fs"] }
+tokio = { version = "1.52.3", default-features = false, features = ["rt", "macros", "net", "time", "sync"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-reqwest = { version = "0.13.4", features = ["json"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls", "charset"] }
 prost = "0.14.4"
 tokio-rustls = "0.26.4"
 rustls-native-certs = "0.8.4"

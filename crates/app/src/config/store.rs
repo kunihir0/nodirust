@@ -17,12 +17,23 @@ pub struct AppConfig {
     pub fcm_persistent_ids: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct FcmCredentials {
     pub android_id: u64,
     pub security_token: u64,
     pub fcm_token: String,
     pub expo_push_token: String,
+}
+
+impl fmt::Debug for FcmCredentials {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FcmCredentials")
+            .field("android_id", &self.android_id)
+            .field("security_token", &"<redacted>")
+            .field("fcm_token", &"<redacted>")
+            .field("expo_push_token", &"<redacted>")
+            .finish()
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
