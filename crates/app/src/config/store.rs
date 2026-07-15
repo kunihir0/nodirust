@@ -58,6 +58,8 @@ pub struct ServerConfig {
     pub player_id: u64,
     // Sensitive token used to pair with the specific Rust server
     pub player_token: i32,
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 // Implement a custom Debug trait to redact the sensitive token, satisfying AGENTS.md Section 12.
@@ -68,6 +70,7 @@ impl fmt::Debug for ServerConfig {
             .field("port", &self.port)
             .field("player_id", &self.player_id)
             .field("player_token", &"<redacted>")
+            .field("name", &self.name)
             .finish()
     }
 }

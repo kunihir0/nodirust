@@ -17,4 +17,9 @@ pub enum DaemonEvent {
         server_ip_port: String,
         connected: bool,
     },
+    ServerNameDiscovered {
+        ip: String,
+        port: u16,
+        name: String,
+    },
 }

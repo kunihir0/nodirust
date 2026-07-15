@@ -280,11 +280,13 @@ impl DaemonEngine {
                                     if let Some(player_id) = json.get("playerId").and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))) {
                                         if let Some(player_token) = json.get("playerToken").and_then(|v| v.as_i64().map(|i| i as i32).or_else(|| v.as_str().and_then(|s| s.parse().ok()))) {
                                             if req_type == "server" {
+                                                let name = json.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
                                                 let server = crate::config::store::ServerConfig {
                                                     ip: ip.to_string(),
                                                     port,
                                                     player_id,
                                                     player_token,
+                                                    name,
                                                 };
                                                 let _ = event_tx.try_send(DaemonEvent::PairingRequest(server));
                                                 is_pairing = true;
@@ -403,6 +405,18 @@ impl DaemonEngine {
                         connected: true,
                     });
                     backoff = Duration::from_secs(1);
+                    
+                    if let Ok(msg) = client.get_info().await {
+                        if let Some(resp) = msg.response {
+                            if let Some(info) = resp.info {
+                                let _ = event_tx.try_send(DaemonEvent::ServerNameDiscovered {
+                                    ip: server.ip.clone(),
+                                    port: server.port,
+                                    name: info.name,
+                                });
+                            }
+                        }
+                    }
 
                     if let Some(mut broadcast_rx) = client.take_broadcast_receiver() {
                         while let Ok(msg) = broadcast_rx.recv().await {

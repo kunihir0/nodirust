@@ -110,7 +110,8 @@ fn run_ui_process() -> eframe::Result {
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([550.0, 500.0])
+            .with_inner_size([750.0, 500.0])
+            .with_min_inner_size([600.0, 400.0])
             .with_title("NODIrust")
             .with_decorations(false)
             .with_transparent(true)
@@ -208,6 +209,22 @@ fn run_daemon_process() {
                             let mut statuses = app_state_clone.server_statuses_rx.borrow().clone();
                             statuses.insert(server_ip_port, connected);
                             let _ = app_state_clone.server_statuses_tx.send(statuses);
+                        }
+                        crate::daemon::events::DaemonEvent::ServerNameDiscovered { ip, port, name } => {
+                            let mut servers = crate::config::store::Store::get_servers();
+                            let mut changed = false;
+                            for s in servers.iter_mut() {
+                                if s.ip == ip && s.port == port && s.name.as_deref() != Some(name.as_str()) {
+                                    s.name = Some(name.clone());
+                                    changed = true;
+                                }
+                            }
+                            if changed {
+                                let mut config = crate::config::store::Store::get_config();
+                                config.servers = servers.clone();
+                                let _ = crate::config::store::Store::save_config(&config);
+                                let _ = app_state_clone.servers_tx.send(servers);
+                            }
                         }
                     }
                 }
