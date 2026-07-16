@@ -85,6 +85,7 @@ pub fn status_badge(ui: &mut egui::Ui, label: &str, color: egui::Color32) {
 
 pub fn connection_status_display(status: ConnectionStatus) -> (&'static str, egui::Color32) {
     match status {
+        ConnectionStatus::SignedOut => ("Signed out", egui::Color32::from_rgb(156, 163, 175)),
         ConnectionStatus::Connecting => ("Connecting", egui::Color32::from_rgb(250, 204, 21)),
         ConnectionStatus::Connected => ("Connected", egui::Color32::from_rgb(74, 222, 128)),
         ConnectionStatus::Reconnecting => ("Reconnecting", egui::Color32::from_rgb(250, 204, 21)),

@@ -34,7 +34,12 @@ impl AppState {
         servers: Vec<crate::config::store::ServerConfig>,
         devices: Vec<crate::config::store::DeviceConfig>,
     ) -> (Self, tokio::sync::mpsc::Receiver<crate::ipc::IpcCommand>) {
-        let (push_tx, push_status) = watch::channel(crate::ipc::ConnectionStatus::Connecting);
+        let initial_push_status = if steam_logged_in {
+            crate::ipc::ConnectionStatus::Connecting
+        } else {
+            crate::ipc::ConnectionStatus::SignedOut
+        };
+        let (push_tx, push_status) = watch::channel(initial_push_status);
         let (steam_tx, steam_logged_in) = watch::channel(steam_logged_in);
         let (servers_tx, servers_rx) = watch::channel(servers);
         let (devices_tx, devices_rx) = watch::channel(devices);

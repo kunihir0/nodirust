@@ -15,10 +15,17 @@ const PACKAGE_NAME: &str = "com.facepunch.rust.companion";
 const PACKAGE_CERT: &str = "38918a453d07199354f8b19af05ec6562ced5788";
 const MAX_BACKOFF: Duration = Duration::from_mins(1);
 
-pub async fn run(event_tx: mpsc::Sender<DaemonEvent>) {
+pub async fn run(
+    event_tx: mpsc::Sender<DaemonEvent>,
+    mut steam_rx: tokio::sync::watch::Receiver<bool>,
+) {
     let mut backoff = Duration::from_secs(1);
     let mut first_attempt = true;
     loop {
+        if !wait_until_logged_in(&event_tx, &mut steam_rx).await {
+            return;
+        }
+
         let status = if first_attempt {
             ConnectionStatus::Connecting
         } else {
@@ -27,45 +34,82 @@ pub async fn run(event_tx: mpsc::Sender<DaemonEvent>) {
         emit_status(&event_tx, status);
         first_attempt = false;
 
-        match run_connection(&event_tx).await {
-            Ok(()) => {
+        let connection_result = tokio::select! {
+            result = run_connection(&event_tx) => Some(result),
+            changed = steam_rx.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+                None
+            }
+        };
+
+        match connection_result {
+            None => {
+                backoff = Duration::from_secs(1);
+                first_attempt = true;
+            }
+            Some(Ok(())) => {
                 backoff = Duration::from_secs(1);
                 tracing::warn!("Push stream ended; reconnecting");
                 emit_status(&event_tx, ConnectionStatus::Reconnecting);
             }
-            Err(error) => {
+            Some(Err(error)) => {
                 tracing::error!(%error, ?backoff, "Push connection failed");
                 emit_status(&event_tx, ConnectionStatus::Unreachable);
-                sleep(backoff).await;
+                tokio::select! {
+                    () = sleep(backoff) => {}
+                    changed = steam_rx.changed() => {
+                        if changed.is_err() {
+                            return;
+                        }
+                    }
+                }
                 backoff = std::cmp::min(backoff * 2, MAX_BACKOFF);
             }
         }
     }
 }
 
+async fn wait_until_logged_in(
+    event_tx: &mpsc::Sender<DaemonEvent>,
+    steam_rx: &mut tokio::sync::watch::Receiver<bool>,
+) -> bool {
+    if *steam_rx.borrow() {
+        return true;
+    }
+
+    emit_status(event_tx, ConnectionStatus::SignedOut);
+    loop {
+        if steam_rx.changed().await.is_err() {
+            return false;
+        }
+        if *steam_rx.borrow() {
+            return true;
+        }
+    }
+}
+
 async fn run_connection(event_tx: &mpsc::Sender<DaemonEvent>) -> Result<(), String> {
     let credentials = load_or_register_credentials().await?;
-    register_with_facepunch(&credentials).await;
+    register_with_facepunch(&credentials).await?;
     let mut builder = PushReceiver::builder(SENDER_ID);
     let persistent_ids = Store::get_config().fcm_persistent_ids;
     if !persistent_ids.is_empty() {
         builder = builder.persistent_ids(persistent_ids);
     }
 
-    let (_receiver, mut stream) = builder
-        .listen(credentials.android_id, credentials.security_token)
-        .await
-        .map_err(|error| format!("MCS connection failed: {error}"))?;
+    let (_receiver, mut stream) =
+        builder.listen(credentials.android_id, credentials.security_token);
     emit_status(event_tx, ConnectionStatus::Connected);
     while let Some(notification) = stream.recv().await {
-        process_notification(&notification, event_tx);
+        process_notification(&notification, event_tx).await;
     }
     Ok(())
 }
 
 async fn load_or_register_credentials() -> Result<FcmCredentials, String> {
-    let mut config = Store::get_config();
-    if let Some(credentials) = config.fcm_credentials {
+    if let Some(credentials) = Store::get_config().fcm_credentials {
         return Ok(credentials);
     }
 
@@ -94,31 +138,23 @@ async fn load_or_register_credentials() -> Result<FcmCredentials, String> {
         fcm_token: registration.fcm.token,
         expo_push_token,
     };
-    config.fcm_credentials = Some(credentials.clone());
-    Store::save_config(&config)
+    Store::update_config(|config| config.fcm_credentials = Some(credentials.clone()))
         .map_err(|error| format!("Could not save push credentials: {error}"))?;
     Ok(credentials)
 }
 
-pub async fn register_with_facepunch_current() {
-    let config = Store::get_config();
-    if let Some(credentials) = config.fcm_credentials {
-        register_with_facepunch(&credentials).await;
-    }
-}
-
-async fn register_with_facepunch(credentials: &FcmCredentials) {
-    let Ok(steam_token) = Store::get_steam_token() else {
-        return;
-    };
+async fn register_with_facepunch(credentials: &FcmCredentials) -> Result<(), String> {
+    let steam_token = Store::get_steam_token()?;
     let client = crate::facepunch::FacepunchClient::new(steam_token);
-    match client.register_push(&credentials.expo_push_token).await {
-        Ok(()) => tracing::info!("Registered push token with Facepunch"),
-        Err(error) => tracing::error!(%error, "Failed to register push token with Facepunch"),
-    }
+    client
+        .register_push(&credentials.expo_push_token)
+        .await
+        .map_err(|error| format!("Facepunch push registration failed: {error}"))?;
+    tracing::info!("Registered push token with Facepunch");
+    Ok(())
 }
 
-fn process_notification(notification: &Notification, event_tx: &mpsc::Sender<DaemonEvent>) {
+async fn process_notification(notification: &Notification, event_tx: &mpsc::Sender<DaemonEvent>) {
     remember_persistent_id(notification.persistent_id.as_deref());
     if is_stale(notification.sent) {
         return;
@@ -130,7 +166,7 @@ fn process_notification(notification: &Notification, event_tx: &mpsc::Sender<Dae
         .as_ref()
         .and_then(|payload| parse_pairing_event(payload, kind))
     {
-        let _ = event_tx.try_send(event);
+        emit_event(event_tx, event).await;
         return;
     }
 
@@ -149,25 +185,34 @@ fn process_notification(notification: &Notification, event_tx: &mpsc::Sender<Dae
     }
 
     let (title, body) = notification_text(notification, json.as_ref(), kind, fallback_body);
-    let _ = event_tx.try_send(DaemonEvent::PushNotificationReceived { title, body });
+    emit_event(
+        event_tx,
+        DaemonEvent::PushNotificationReceived { title, body },
+    )
+    .await;
+}
+
+async fn emit_event(event_tx: &mpsc::Sender<DaemonEvent>, event: DaemonEvent) {
+    if event_tx.send(event).await.is_err() {
+        tracing::error!("Daemon event consumer stopped");
+    }
 }
 
 fn remember_persistent_id(persistent_id: Option<&str>) {
     let Some(persistent_id) = persistent_id else {
         return;
     };
-    let mut config = Store::get_config();
-    if config
-        .fcm_persistent_ids
-        .iter()
-        .any(|known| known == persistent_id)
-    {
-        return;
-    }
-    config.fcm_persistent_ids.push(persistent_id.to_string());
-    let excess = config.fcm_persistent_ids.len().saturating_sub(100);
-    config.fcm_persistent_ids.drain(..excess);
-    if let Err(error) = Store::save_config(&config) {
+    if let Err(error) = Store::update_config(|config| {
+        if config
+            .fcm_persistent_ids
+            .iter()
+            .all(|known| known != persistent_id)
+        {
+            config.fcm_persistent_ids.push(persistent_id.to_string());
+            let excess = config.fcm_persistent_ids.len().saturating_sub(100);
+            config.fcm_persistent_ids.drain(..excess);
+        }
+    }) {
         tracing::error!(%error, "Failed to save push message identifier");
     }
 }
@@ -346,13 +391,17 @@ fn should_suppress_alarm(
 }
 
 fn emit_status(event_tx: &mpsc::Sender<DaemonEvent>, status: ConnectionStatus) {
-    let _ = event_tx.try_send(DaemonEvent::ConnectionStatusChanged(status));
+    if let Err(error) = event_tx.try_send(DaemonEvent::ConnectionStatusChanged(status)) {
+        tracing::error!(%error, "Could not publish push connection status");
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::should_suppress_alarm;
+    use super::{process_notification, should_suppress_alarm};
     use crate::config::store::DeviceConfig;
+    use crate::daemon::events::DaemonEvent;
+    use push_receiver::Notification;
 
     fn device(entity_id: u32, enabled: bool) -> DeviceConfig {
         DeviceConfig {
@@ -386,5 +435,27 @@ mod tests {
     fn suppresses_unidentified_alarm_only_when_all_server_devices_are_disabled() {
         let devices = vec![device(1, false), device(2, false)];
         assert!(should_suppress_alarm(&devices, "127.0.0.1", 28_082, None));
+    }
+
+    #[tokio::test]
+    async fn forwards_smart_alarm_to_daemon_event_queue() {
+        let notification = Notification {
+            decrypted:
+                br#"{"type":"alarm","title":"Smart Alarm","message":"Your base is under attack!"}"#
+                    .to_vec(),
+            persistent_id: None,
+            app_data: Vec::new(),
+            sent: None,
+        };
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(1);
+
+        process_notification(&notification, &event_tx).await;
+
+        let event = event_rx.recv().await;
+        assert!(matches!(
+            event,
+            Some(DaemonEvent::PushNotificationReceived { title, body })
+                if title == "Smart Alarm" && body == "Your base is under attack!"
+        ));
     }
 }

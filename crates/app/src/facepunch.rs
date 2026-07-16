@@ -26,19 +26,12 @@ impl FacepunchClient {
             "PushKind": 3
         });
 
-        let res = self.client.post(url).json(&payload).send().await?;
-
-        let status = res.status();
-        let body = res.text().await?;
-        if !status.is_success() {
-            tracing::error!("register_push failed with {}: {}", status, body);
-            // Return an error by forcing reqwest to fail since we can't construct reqwest::Error
-            let _ = reqwest::Client::new()
-                .get("http://0.0.0.0:0")
-                .send()
-                .await?;
-        }
-
+        self.client
+            .post(url)
+            .json(&payload)
+            .send()
+            .await?
+            .error_for_status()?;
         Ok(())
     }
 }

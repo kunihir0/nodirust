@@ -13,7 +13,7 @@ pub enum Confirmation {
         entity_id: u32,
         name: String,
     },
-    UnlinkSteam,
+    SignOut,
 }
 
 pub fn show_confirmation_modal(
@@ -64,12 +64,11 @@ fn confirmation_content(confirmation: &Confirmation) -> ConfirmationContent {
             ),
             action: "Remove device",
         },
-        Confirmation::UnlinkSteam => ConfirmationContent {
-            title: "Unlink Steam account?",
-            description:
-                "New Rust+ pairing requests cannot be registered until Steam is linked again."
-                    .to_string(),
-            action: "Unlink Steam",
+        Confirmation::SignOut => ConfirmationContent {
+            title: "Sign out of NODIrust?",
+            description: "Your Steam session, push identity, paired servers, and smart devices will be removed from this computer. You can authenticate again immediately."
+                .to_string(),
+            action: "Sign out",
         },
     }
 }
@@ -113,26 +112,25 @@ fn execute_confirmation(app_state: &AppState, confirmation: &Confirmation) {
         Confirmation::RemoveDevice {
             server, entity_id, ..
         } => remove_device(app_state, server, *entity_id),
-        Confirmation::UnlinkSteam => {
-            app_state.send_command(crate::ipc::IpcCommand::UnlinkSteam);
+        Confirmation::SignOut => {
+            app_state.send_command(crate::ipc::IpcCommand::SignOut);
         }
     }
 }
 
 fn remove_server(app_state: &AppState, server: &ServerKey) {
-    let mut servers = app_state.servers_rx.borrow().clone();
-    servers.retain(|candidate| candidate.ip != server.ip || candidate.port != server.port);
-    app_state.send_command(crate::ipc::IpcCommand::UpdateServers(servers));
+    app_state.send_command(crate::ipc::IpcCommand::RemoveServer {
+        ip: server.ip.clone(),
+        port: server.port,
+    });
 }
 
 fn remove_device(app_state: &AppState, server: &ServerKey, entity_id: u32) {
-    let mut devices = app_state.devices_rx.borrow().clone();
-    devices.retain(|candidate| {
-        candidate.entity_id != entity_id
-            || candidate.server_ip != server.ip
-            || candidate.server_port != server.port
+    app_state.send_command(crate::ipc::IpcCommand::RemoveDevice {
+        server_ip: server.ip.clone(),
+        server_port: server.port,
+        entity_id,
     });
-    app_state.send_command(crate::ipc::IpcCommand::UpdateDevices(devices));
 }
 
 pub fn draw_modal_backdrop(ctx: &egui::Context, id: &str) {

@@ -109,8 +109,8 @@ fn show_service_health(
             },
             |ui| {
                 if is_logged_in {
-                    if ui.button("Unlink").clicked() {
-                        *confirmation = Some(Confirmation::UnlinkSteam);
+                    if ui.button("Sign out").clicked() {
+                        *confirmation = Some(Confirmation::SignOut);
                     }
                 } else {
                     let in_progress = auth_in_progress.load(Ordering::Acquire);

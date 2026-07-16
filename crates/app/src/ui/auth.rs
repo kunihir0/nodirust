@@ -66,6 +66,7 @@ impl ApplicationHandler<()> for AuthApp {
             let login_url = "https://companion-rust.facepunch.com/login";
 
             let webview = WebViewBuilder::new()
+                .with_incognito(true)
                 .with_url(login_url)
                 .with_ipc_handler(ipc_handler)
                 .with_navigation_handler(|url: String| {

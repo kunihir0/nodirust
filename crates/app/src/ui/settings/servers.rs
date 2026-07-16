@@ -15,6 +15,8 @@ pub fn show_servers_pane(app_state: &AppState, state: &mut ServersState<'_>, ui:
     show_servers_header(ui);
     let servers = app_state.servers_rx.borrow().clone();
     if servers.is_empty() {
+        *state.selected_server = None;
+        *state.compact_show_detail = false;
         show_empty_state(app_state, state, ui);
         return;
     }
@@ -46,7 +48,12 @@ fn ensure_server_selected(
     servers: &[crate::config::store::ServerConfig],
     selected_server: &mut Option<ServerKey>,
 ) {
-    if selected_server.is_none() {
+    let selection_exists = selected_server.as_ref().is_some_and(|selected| {
+        servers
+            .iter()
+            .any(|server| server.ip == selected.ip && server.port == selected.port)
+    });
+    if !selection_exists {
         *selected_server = Some(ServerKey {
             ip: servers[0].ip.clone(),
             port: servers[0].port,
@@ -89,7 +96,7 @@ fn show_server_card(
         .inner_margin(12.0)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            show_server_identity(server, &status_key, selected, &key, state, ui);
+            show_server_identity(server, &status_key, &key, state, ui);
             ui.add_space(8.0);
             show_server_actions(server, &status_key, status, &key, state, ui);
         });
@@ -98,7 +105,6 @@ fn show_server_card(
 fn show_server_identity(
     server: &crate::config::store::ServerConfig,
     status_key: &str,
-    selected: bool,
     key: &ServerKey,
     state: &mut ServersState<'_>,
     ui: &mut egui::Ui,
@@ -118,10 +124,7 @@ fn show_server_identity(
             );
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui
-                .button(if selected { "Selected" } else { "Open" })
-                .clicked()
-            {
+            if ui.button("View devices").clicked() {
                 *state.selected_server = Some(key.clone());
                 *state.compact_show_detail = true;
             }
@@ -182,13 +185,18 @@ pub fn show_devices_pane(app_state: &AppState, state: &mut ServersState<'_>, ui:
     show_devices_header(app_state, &selected, ui);
 
     let mut devices = app_state.devices_rx.borrow().clone();
-    let (has_devices, changed) = show_device_list(&mut devices, &selected, state, ui);
+    let (has_devices, changes) = show_device_list(&mut devices, &selected, state, ui);
     if !has_devices {
         show_no_devices(ui);
     }
 
-    if changed {
-        app_state.send_command(crate::ipc::IpcCommand::UpdateDevices(devices));
+    for (entity_id, enabled) in changes {
+        app_state.send_command(crate::ipc::IpcCommand::SetDeviceEnabled {
+            server_ip: selected.ip.clone(),
+            server_port: selected.port,
+            entity_id,
+            enabled,
+        });
     }
 }
 
@@ -213,9 +221,9 @@ fn show_device_list(
     selected: &ServerKey,
     state: &mut ServersState<'_>,
     ui: &mut egui::Ui,
-) -> (bool, bool) {
+) -> (bool, Vec<(u32, bool)>) {
     let mut has_devices = false;
-    let mut changed = false;
+    let mut changes = Vec::new();
     egui::ScrollArea::vertical()
         .id_salt("devices_scroll")
         .auto_shrink([false, false])
@@ -224,11 +232,13 @@ fn show_device_list(
                 device.server_ip == selected.ip && device.server_port == selected.port
             }) {
                 has_devices = true;
-                changed |= show_device_card(device, selected, state, ui);
+                if show_device_card(device, selected, state, ui) {
+                    changes.push((device.entity_id, device.enabled));
+                }
                 ui.add_space(10.0);
             }
         });
-    (has_devices, changed)
+    (has_devices, changes)
 }
 
 fn show_device_card(

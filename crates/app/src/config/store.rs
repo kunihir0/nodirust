@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+static CONFIG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Configuration stored in the application's data directory.
 #[derive(Serialize, Deserialize, Default)]
 pub struct AppConfig {
@@ -88,16 +90,18 @@ impl Store {
 
     /// Persists the Steam authentication token to disk.
     pub fn set_steam_token(token: &str) -> Result<(), String> {
-        let mut config = Self::get_config();
-        config.steam_token = Some(token.to_string());
-        Self::save_config(&config).map_err(|e| e.to_string())
+        Self::update_config(|config| config.steam_token = Some(token.to_string()))
     }
 
-    /// Deletes the Steam authentication token from disk.
-    pub fn delete_steam_token() -> Result<(), String> {
-        let mut config = Self::get_config();
-        config.steam_token = None;
-        Self::save_config(&config).map_err(|e| e.to_string())
+    /// Removes all account-bound state so the next login starts a fresh session.
+    pub fn sign_out() -> Result<(), String> {
+        Self::update_config(|config| {
+            config.steam_token = None;
+            config.fcm_credentials = None;
+            config.fcm_persistent_ids.clear();
+            config.servers.clear();
+            config.devices.clear();
+        })
     }
 
     pub fn get_servers() -> Vec<ServerConfig> {
@@ -110,14 +114,21 @@ impl Store {
         config.devices
     }
 
-    pub fn set_devices(devices: Vec<DeviceConfig>) -> Result<(), String> {
-        let mut config = Self::get_config();
-        config.devices = devices;
-        Self::save_config(&config).map_err(|e| e.to_string())
+    pub fn get_config() -> AppConfig {
+        let _guard = config_guard();
+        Self::read_config()
     }
 
-    // Add methods to read/write AppConfig from disk using directories crate.
-    pub fn get_config() -> AppConfig {
+    pub fn update_config<T>(update: impl FnOnce(&mut AppConfig) -> T) -> Result<T, String> {
+        let _guard = config_guard();
+        let mut config = Self::read_config();
+        let result = update(&mut config);
+        Self::write_config(&config)
+            .map(|()| result)
+            .map_err(|error| error.to_string())
+    }
+
+    fn read_config() -> AppConfig {
         if let Some(proj_dirs) = directories::ProjectDirs::from("com", "nodirust", "nodirust") {
             let config_dir = proj_dirs.config_dir();
             let config_file = config_dir.join("config.json");
@@ -130,14 +141,13 @@ impl Store {
         AppConfig::default()
     }
 
-    pub fn save_config(config: &AppConfig) -> Result<(), std::io::Error> {
+    fn write_config(config: &AppConfig) -> Result<(), std::io::Error> {
         if let Some(proj_dirs) = directories::ProjectDirs::from("com", "nodirust", "nodirust") {
             let config_dir = proj_dirs.config_dir();
             std::fs::create_dir_all(config_dir)?;
             let config_file = config_dir.join("config.json");
-            if let Ok(json) = serde_json::to_string_pretty(config) {
-                std::fs::write(&config_file, json)?;
-            }
+            let json = serde_json::to_string_pretty(config).map_err(std::io::Error::other)?;
+            std::fs::write(&config_file, json)?;
         }
         Ok(())
     }
@@ -154,5 +164,12 @@ impl Store {
         } else {
             std::path::PathBuf::from("/tmp/nodirust.sock")
         }
+    }
+}
+
+fn config_guard() -> std::sync::MutexGuard<'static, ()> {
+    match CONFIG_LOCK.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
     }
 }

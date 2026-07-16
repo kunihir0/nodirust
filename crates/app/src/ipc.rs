@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConnectionStatus {
+    SignedOut,
     Connecting,
     Connected,
     Reconnecting,
@@ -92,10 +93,23 @@ pub enum IpcEvent {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum IpcCommand {
-    UpdateServers(Vec<ServerConfig>),
-    UpdateDevices(Vec<DeviceConfig>),
+    RemoveServer {
+        ip: String,
+        port: u16,
+    },
+    RemoveDevice {
+        server_ip: String,
+        server_port: u16,
+        entity_id: u32,
+    },
+    SetDeviceEnabled {
+        server_ip: String,
+        server_port: u16,
+        entity_id: u32,
+        enabled: bool,
+    },
     RefreshSteamStatus,
-    UnlinkSteam,
+    SignOut,
     DeclinePairing,
     AcceptPairing(ServerConfig),
     SendTestNotification,

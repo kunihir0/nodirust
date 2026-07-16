@@ -181,7 +181,7 @@ impl SettingsWindow {
                 .frame(central_frame)
                 .show(ctx, |ui| {
                     if *state.compact_show_detail && state.selected_server.is_some() {
-                        if ui.button("← All servers").clicked() {
+                        if ui.button("< All servers").clicked() {
                             *state.compact_show_detail = false;
                         }
                         ui.add_space(12.0);

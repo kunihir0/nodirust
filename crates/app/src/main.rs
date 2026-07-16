@@ -21,7 +21,7 @@ fn main() -> eframe::Result {
         .init();
 
     #[cfg(target_os = "macos")]
-    if let Err(e) = notify_rust::set_application("com.apple.Terminal") {
+    if let Err(e) = notify_rust::set_application("com.nodirust.app") {
         tracing::error!("Failed to set macOS notification application: {}", e);
     }
 
