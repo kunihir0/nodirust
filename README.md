@@ -53,6 +53,8 @@ Prebuilt releases are available for:
 
 Go to the [latest release](https://github.com/kunihir0/nodirust/releases/latest), download the build for your platform, and launch NODIrust. The app will remain accessible from the system tray or macOS menu bar.
 
+> **Windows fullscreen notifications:** To receive notification banners while using a fullscreen app or playing a game, open **Settings > System > Notifications > Turn on do not disturb automatically**, then clear **When using an app in full-screen mode** and **When playing a game**.
+
 ## Privacy and security
 
 NODIrust collects **zero analytics or telemetry**.
