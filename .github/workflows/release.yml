@@ -20,42 +20,42 @@ jobs:
             os: macos-latest
             target: aarch64-apple-darwin
             bin: app
-            name: NODIrust-macOS-arm64.dmg
+            artifact_name: NODIrust-macOS-arm64
+            artifact_path: NODIrust-macOS-arm64.dmg
           - os_name: Windows-x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
             bin: app.exe
-            name: nodirust-windows-x86_64.zip
+            artifact_name: NODIrust-Windows-x86_64-Store
+            artifact_path: NODIrust-Windows-x86_64-*.msix
 
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: recursive
-      
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform.target }}
-          
+
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
-        
+
       - name: Build binary
         run: cargo build -p app --release --target ${{ matrix.platform.target }}
-        
+
       - name: Create macOS App Bundle and DMG
         if: runner.os == 'macOS'
         run: |
           mkdir -p "NODIrust.app/Contents/MacOS"
           mkdir -p "NODIrust.app/Contents/Resources"
           cp "target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}" "NODIrust.app/Contents/MacOS/NODIrust"
-          
-          # Convert icon if present
+
           if [ -f "crates/app/assets/app.ico" ]; then
             sips -s format icns "crates/app/assets/app.ico" --out "NODIrust.app/Contents/Resources/AppIcon.icns" || true
           fi
-          
-          # Create a basic Info.plist
+
           cat > "NODIrust.app/Contents/Info.plist" << EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -78,10 +78,9 @@ jobs:
           </dict>
           </plist>
           EOF
-          
-          # Apple Silicon requires at least an ad-hoc signature
+
           codesign --force --deep --sign - "NODIrust.app"
-          
+
           export HOMEBREW_NO_REQUIRE_TAP_TRUST=1
           brew install create-dmg
           create-dmg \
@@ -92,21 +91,121 @@ jobs:
             --icon "NODIrust.app" 200 190 \
             --hide-extension "NODIrust.app" \
             --app-drop-link 600 185 \
-            "${{ matrix.platform.name }}" \
+            "${{ matrix.platform.artifact_path }}" \
             "NODIrust.app"
-          
-      - name: Package Windows
+
+      - name: Create Windows Store MSIX
         if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          MSIX_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME }}
+          MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER }}
+          MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME }}
         run: |
-          Rename-Item -Path "target\${{ matrix.platform.target }}\release\${{ matrix.platform.bin }}" -NewName "NODIrust.exe"
-          Compress-Archive -Path "target\${{ matrix.platform.target }}\release\NODIrust.exe" -DestinationPath "${{ matrix.platform.name }}"
-          
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+
+          if ([string]::IsNullOrWhiteSpace($env:MSIX_IDENTITY_NAME)) {
+            throw "The MSIX_IDENTITY_NAME repository variable is required. Copy it from Partner Center's product identity page."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:MSIX_PUBLISHER)) {
+            throw "The MSIX_PUBLISHER repository variable is required. Copy it from Partner Center's product identity page."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:MSIX_PUBLISHER_DISPLAY_NAME)) {
+            throw "The MSIX_PUBLISHER_DISPLAY_NAME repository variable is required. Copy it from Partner Center's product identity page."
+          }
+
+          $versionMatch = Select-String -Path "crates/app/Cargo.toml" -Pattern '^version = "(\d+\.\d+\.\d+)"$'
+          if ($null -eq $versionMatch) {
+            throw "Could not read the application version from crates/app/Cargo.toml."
+          }
+          $version = $versionMatch.Matches[0].Groups[1].Value
+
+          if ($env:GITHUB_REF_TYPE -eq "tag") {
+            $tagVersion = $env:GITHUB_REF_NAME -replace '^v', ''
+            if ($tagVersion -ne $version) {
+              throw "Release tag $($env:GITHUB_REF_NAME) does not match application version $version."
+            }
+          }
+
+          $makeAppx = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\makeappx.exe" |
+            Sort-Object -Property FullName -Descending |
+            Select-Object -First 1
+          if ($null -eq $makeAppx) {
+            throw "makeappx.exe was not found on the Windows runner."
+          }
+
+          $executablePath = (Resolve-Path "target\${{ matrix.platform.target }}\release\${{ matrix.platform.bin }}").Path
+          $sourceIconPath = (Resolve-Path ".github\assets\app-icon.png").Path
+          $layoutPath = Join-Path $env:RUNNER_TEMP "nodirust-msix"
+          $assetsPath = Join-Path $layoutPath "Assets"
+          $manifestPath = Join-Path $layoutPath "AppxManifest.xml"
+          $packageVersion = "$version.0"
+          $packageName = "NODIrust-Windows-x86_64-$packageVersion.msix"
+
+          New-Item -ItemType Directory -Path $assetsPath -Force | Out-Null
+          Copy-Item $executablePath (Join-Path $layoutPath "NODIrust.exe")
+          Copy-Item "installer\windows\AppxManifest.xml" $manifestPath
+
+          [xml]$manifest = Get-Content $manifestPath
+          $namespaceManager = [Xml.XmlNamespaceManager]::new($manifest.NameTable)
+          $namespaceManager.AddNamespace("foundation", "http://schemas.microsoft.com/appx/manifest/foundation/windows10")
+          $identity = $manifest.SelectSingleNode("/foundation:Package/foundation:Identity", $namespaceManager)
+          if ($null -eq $identity) {
+            throw "The MSIX package identity element is missing."
+          }
+          $identity.SetAttribute("Name", $env:MSIX_IDENTITY_NAME)
+          $identity.SetAttribute("Publisher", $env:MSIX_PUBLISHER)
+          $identity.SetAttribute("Version", $packageVersion)
+          $publisherDisplayName = $manifest.SelectSingleNode("/foundation:Package/foundation:Properties/foundation:PublisherDisplayName", $namespaceManager)
+          if ($null -eq $publisherDisplayName) {
+            throw "The MSIX publisher display name element is missing."
+          }
+          $publisherDisplayName.InnerText = $env:MSIX_PUBLISHER_DISPLAY_NAME
+          $manifest.Save($manifestPath)
+
+          Add-Type -AssemblyName System.Drawing
+          function Export-SquareLogo {
+            param(
+              [Parameter(Mandatory)] [string]$Source,
+              [Parameter(Mandatory)] [string]$Destination,
+              [Parameter(Mandatory)] [int]$Size
+            )
+
+            $sourceImage = [Drawing.Image]::FromFile($Source)
+            $bitmap = [Drawing.Bitmap]::new($Size, $Size)
+            $graphics = [Drawing.Graphics]::FromImage($bitmap)
+            try {
+              $graphics.Clear([Drawing.Color]::Transparent)
+              $graphics.CompositingQuality = [Drawing.Drawing2D.CompositingQuality]::HighQuality
+              $graphics.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+              $graphics.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::HighQuality
+              $graphics.DrawImage($sourceImage, 0, 0, $Size, $Size)
+              $bitmap.Save($Destination, [Drawing.Imaging.ImageFormat]::Png)
+            }
+            finally {
+              $graphics.Dispose()
+              $bitmap.Dispose()
+              $sourceImage.Dispose()
+            }
+          }
+
+          Export-SquareLogo -Source $sourceIconPath -Destination (Join-Path $assetsPath "StoreLogo.png") -Size 50
+          Export-SquareLogo -Source $sourceIconPath -Destination (Join-Path $assetsPath "Square150x150Logo.png") -Size 150
+          Export-SquareLogo -Source $sourceIconPath -Destination (Join-Path $assetsPath "Square44x44Logo.png") -Size 44
+
+          & $makeAppx.FullName pack /v /h SHA256 /d $layoutPath /p $packageName /o
+
+          "### Microsoft Store package" >> $env:GITHUB_STEP_SUMMARY
+          "$packageName is available in the NODIrust-Windows-x86_64-Store artifact. Upload it directly to Partner Center." >> $env:GITHUB_STEP_SUMMARY
+
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.platform.name }}
-          path: ${{ matrix.platform.name }}
-          
+          name: ${{ matrix.platform.artifact_name }}
+          path: ${{ matrix.platform.artifact_path }}
+          if-no-files-found: error
+
   release:
     name: Create Release
     needs: build
@@ -115,6 +214,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
+          pattern: NODIrust-macOS-arm64
           merge-multiple: true
           path: dist
       - name: Create Release
@@ -122,5 +222,4 @@ jobs:
         with:
           files: |
             dist/*.dmg
-            dist/*.zip
           generate_release_notes: true
