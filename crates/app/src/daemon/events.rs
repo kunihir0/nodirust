@@ -1,7 +1,7 @@
 //! Events mapping protocol triggers to UI and notifications.
 
 pub enum DaemonEvent {
-    ConnectionStatusChanged(bool),
+    ConnectionStatusChanged(crate::ipc::ConnectionStatus),
     PushNotificationReceived {
         title: String,
         body: String,
@@ -15,7 +15,7 @@ pub enum DaemonEvent {
     EntityPairingRequest(crate::config::store::DeviceConfig),
     ServerConnectionStatusChanged {
         server_ip_port: String,
-        connected: bool,
+        status: crate::ipc::ConnectionStatus,
     },
     ServerNameDiscovered {
         ip: String,

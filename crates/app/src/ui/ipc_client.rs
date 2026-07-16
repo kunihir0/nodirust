@@ -80,15 +80,17 @@ async fn run_client_loop<R, W>(
 fn handle_event(evt: IpcEvent, app_state: &AppState) {
     match evt {
         IpcEvent::FullState(full) => {
-            let _ = app_state.fcm_tx.send(full.fcm_connected);
+            let _ = app_state.push_tx.send(full.push_status);
             let _ = app_state.steam_tx.send(full.steam_logged_in);
             let _ = app_state.servers_tx.send(full.servers);
             let _ = app_state.devices_tx.send(full.devices);
             let _ = app_state.server_statuses_tx.send(full.server_statuses);
             let _ = app_state.pending_pair_tx.send(full.pending_pair);
+            let _ = app_state.last_event_tx.send(full.last_event);
+            let _ = app_state.feedback_tx.send(full.feedback);
         }
-        IpcEvent::FcmStatusChanged(status) => {
-            let _ = app_state.fcm_tx.send(status);
+        IpcEvent::PushStatusChanged(status) => {
+            let _ = app_state.push_tx.send(status);
         }
         IpcEvent::SteamStatusChanged(status) => {
             let _ = app_state.steam_tx.send(status);
@@ -107,11 +109,17 @@ fn handle_event(evt: IpcEvent, app_state: &AppState) {
         }
         IpcEvent::ServerStatusChanged {
             server_ip_port,
-            connected,
+            status,
         } => {
             let mut current = app_state.server_statuses_rx.borrow().clone();
-            current.insert(server_ip_port, connected);
+            current.insert(server_ip_port, status);
             let _ = app_state.server_statuses_tx.send(current);
+        }
+        IpcEvent::LastEventChanged(event) => {
+            let _ = app_state.last_event_tx.send(event);
+        }
+        IpcEvent::FeedbackChanged(feedback) => {
+            let _ = app_state.feedback_tx.send(feedback);
         }
     }
 

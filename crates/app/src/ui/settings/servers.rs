@@ -1,298 +1,382 @@
-use super::theme::custom_toggle;
+use super::theme::{card_frame, connection_status_display, custom_toggle, status_badge};
+use super::{Confirmation, ServerKey, Tab};
 use crate::app_state::AppState;
+use crate::ipc::ConnectionStatus;
 use eframe::egui;
 
 pub struct ServersState<'a> {
-    pub selected_server: &'a mut Option<String>,
-    pub confirm_unpair_server: &'a mut Option<usize>,
-    pub confirm_unpair_device: &'a mut Option<usize>,
+    pub selected_server: &'a mut Option<ServerKey>,
+    pub confirmation: &'a mut Option<Confirmation>,
+    pub compact_show_detail: &'a mut bool,
+    pub active_tab: &'a mut Tab,
 }
 
 pub fn show_servers_pane(app_state: &AppState, state: &mut ServersState<'_>, ui: &mut egui::Ui) {
-    ui.heading(egui::RichText::new("Servers").color(egui::Color32::WHITE));
-    ui.add_space(8.0);
-
+    show_servers_header(ui);
     let servers = app_state.servers_rx.borrow().clone();
-
     if servers.is_empty() {
-        show_empty_state(ui);
+        show_empty_state(app_state, state, ui);
         return;
     }
 
-    // Auto-select first server if none is selected
-    if state.selected_server.is_none() && !servers.is_empty() {
-        *state.selected_server = Some(format!("{}:{}", servers[0].ip, servers[0].port));
-    }
-
+    ensure_server_selected(&servers, state.selected_server);
     let statuses = app_state.server_statuses_rx.borrow().clone();
-    let mut server_to_remove = None;
-
     egui::ScrollArea::vertical()
         .id_salt("servers_scroll")
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            for (idx, server) in servers.iter().enumerate() {
-                let ip_port = format!("{}:{}", server.ip, server.port);
-                let is_connected = statuses.get(&ip_port).copied().unwrap_or(false);
-                let is_selected = Some(&ip_port) == state.selected_server.as_ref();
-
-                let bg_color = if is_selected {
-                    egui::Color32::from_rgb(26, 26, 26) // Highlighted
-                } else {
-                    egui::Color32::from_rgb(10, 10, 10)
-                };
-
-                let card_frame = egui::Frame::none()
-                    .fill(bg_color)
-                    .stroke(egui::Stroke::new(
-                        1.0_f32,
-                        if is_selected {
-                            egui::Color32::from_rgb(60, 60, 60)
-                        } else {
-                            egui::Color32::from_rgb(31, 31, 31)
-                        },
-                    ))
-                    .rounding(6.0)
-                    .inner_margin(12.0);
-
-                let response = card_frame
-                    .show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.horizontal(|ui| {
-                            ui.vertical(|ui| {
-                                let name_display =
-                                    server.name.as_deref().unwrap_or("Unknown Server");
-                                ui.label(
-                                    egui::RichText::new(name_display)
-                                        .color(egui::Color32::WHITE)
-                                        .size(14.0)
-                                        .strong(),
-                                );
-                                ui.add_space(2.0);
-
-                                ui.horizontal(|ui| {
-                                    ui.label(
-                                        egui::RichText::new(&ip_port)
-                                            .color(egui::Color32::from_rgb(150, 150, 150))
-                                            .size(11.0),
-                                    );
-                                    let btn =
-                                        egui::Button::new(egui::RichText::new("📋").size(10.0))
-                                            .fill(egui::Color32::TRANSPARENT);
-                                    let response =
-                                        ui.add(btn).on_hover_text("Copy connect command");
-                                    if response.clicked() {
-                                        ui.output_mut(|o| {
-                                            o.copied_text = format!("client.connect {}", ip_port)
-                                        });
-                                    }
-                                });
-
-                                let status_color = if is_connected {
-                                    egui::Color32::from_rgb(34, 197, 94)
-                                } else {
-                                    egui::Color32::from_rgb(239, 68, 68)
-                                };
-                                let status_text = if is_connected {
-                                    "Connected"
-                                } else {
-                                    "Reconnecting"
-                                };
-                                ui.add_space(4.0);
-                                ui.horizontal(|ui| {
-                                    let (rect, _resp) = ui.allocate_exact_size(
-                                        egui::vec2(6.0, 6.0),
-                                        egui::Sense::hover(),
-                                    );
-                                    ui.painter().circle_filled(rect.center(), 3.0, status_color);
-                                    ui.label(
-                                        egui::RichText::new(status_text)
-                                            .color(status_color)
-                                            .size(11.0),
-                                    );
-                                });
-                            });
-
-                            // Unpair action
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    if *state.confirm_unpair_server == Some(idx) {
-                                        let btn = egui::Button::new(
-                                            egui::RichText::new("Sure?")
-                                                .color(egui::Color32::WHITE),
-                                        )
-                                        .fill(egui::Color32::from_rgb(153, 27, 27));
-                                        if ui.add_sized([45.0, 24.0], btn).clicked() {
-                                            server_to_remove = Some(idx);
-                                            *state.confirm_unpair_server = None;
-                                        }
-                                    } else {
-                                        let btn = egui::Button::new(
-                                            egui::RichText::new("✕")
-                                                .color(egui::Color32::from_rgb(150, 150, 150)),
-                                        )
-                                        .fill(egui::Color32::TRANSPARENT);
-                                        if ui.add(btn).clicked() {
-                                            *state.confirm_unpair_server = Some(idx);
-                                        }
-                                    }
-                                },
-                            );
-                        });
-                    })
-                    .response;
-
-                // Click anywhere on the card to select it (except the unpair button which consumes clicks)
-                let interact = ui.interact(response.rect, ui.id().with(idx), egui::Sense::click());
-                if interact.clicked() {
-                    *state.selected_server = Some(ip_port);
-                    *state.confirm_unpair_server = None;
-                }
-
-                ui.add_space(8.0);
+            for server in &servers {
+                show_server_card(server, &statuses, state, ui);
+                ui.add_space(10.0);
             }
         });
+}
 
-    if let Some(idx) = server_to_remove {
-        let mut current_servers = app_state.servers_rx.borrow().clone();
-        let removed_ip_port = format!("{}:{}", current_servers[idx].ip, current_servers[idx].port);
-        current_servers.remove(idx);
-        if let Some(tx) = &app_state.command_tx {
-            let _ = tx.try_send(crate::ipc::IpcCommand::UpdateServers(current_servers));
-        }
-        if *state.selected_server == Some(removed_ip_port) {
-            *state.selected_server = None;
-        }
+fn show_servers_header(ui: &mut egui::Ui) {
+    ui.heading(egui::RichText::new("Servers").color(egui::Color32::WHITE));
+    ui.label(
+        egui::RichText::new("Paired Rust+ servers and their live connection state.")
+            .color(egui::Color32::from_rgb(165, 165, 165))
+            .size(12.0),
+    );
+    ui.add_space(16.0);
+}
+
+fn ensure_server_selected(
+    servers: &[crate::config::store::ServerConfig],
+    selected_server: &mut Option<ServerKey>,
+) {
+    if selected_server.is_none() {
+        *selected_server = Some(ServerKey {
+            ip: servers[0].ip.clone(),
+            port: servers[0].port,
+        });
     }
 }
 
-pub fn show_devices_pane(app_state: &AppState, state: &mut ServersState<'_>, ui: &mut egui::Ui) {
-    ui.heading(egui::RichText::new("Smart Devices").color(egui::Color32::WHITE));
-    ui.add_space(8.0);
+fn show_server_card(
+    server: &crate::config::store::ServerConfig,
+    statuses: &std::collections::HashMap<String, ConnectionStatus>,
+    state: &mut ServersState<'_>,
+    ui: &mut egui::Ui,
+) {
+    let key = ServerKey {
+        ip: server.ip.clone(),
+        port: server.port,
+    };
+    let status_key = format!("{}:{}", server.ip, server.port);
+    let status = statuses
+        .get(&status_key)
+        .copied()
+        .unwrap_or(ConnectionStatus::Connecting);
+    let selected = state.selected_server.as_ref() == Some(&key);
 
-    let Some(selected_ip_port) = state.selected_server.as_ref() else {
-        ui.add_space(20.0);
+    egui::Frame::none()
+        .fill(if selected {
+            egui::Color32::from_rgb(24, 24, 24)
+        } else {
+            egui::Color32::from_rgb(11, 11, 11)
+        })
+        .stroke(egui::Stroke::new(
+            1.0,
+            if selected {
+                egui::Color32::from_rgb(64, 64, 64)
+            } else {
+                egui::Color32::from_rgb(38, 38, 38)
+            },
+        ))
+        .rounding(8.0)
+        .inner_margin(12.0)
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            show_server_identity(server, &status_key, selected, &key, state, ui);
+            ui.add_space(8.0);
+            show_server_actions(server, &status_key, status, &key, state, ui);
+        });
+}
+
+fn show_server_identity(
+    server: &crate::config::store::ServerConfig,
+    status_key: &str,
+    selected: bool,
+    key: &ServerKey,
+    state: &mut ServersState<'_>,
+    ui: &mut egui::Ui,
+) {
+    ui.horizontal(|ui| {
+        ui.vertical(|ui| {
+            ui.label(
+                egui::RichText::new(server.name.as_deref().unwrap_or("Unnamed Rust server"))
+                    .color(egui::Color32::WHITE)
+                    .size(14.0)
+                    .strong(),
+            );
+            ui.label(
+                egui::RichText::new(status_key)
+                    .color(egui::Color32::from_rgb(170, 170, 170))
+                    .size(11.0),
+            );
+        });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .button(if selected { "Selected" } else { "Open" })
+                .clicked()
+            {
+                *state.selected_server = Some(key.clone());
+                *state.compact_show_detail = true;
+            }
+        });
+    });
+}
+
+fn show_server_actions(
+    server: &crate::config::store::ServerConfig,
+    status_key: &str,
+    status: ConnectionStatus,
+    key: &ServerKey,
+    state: &mut ServersState<'_>,
+    ui: &mut egui::Ui,
+) {
+    ui.horizontal(|ui| {
+        let (label, color) = connection_status_display(status);
+        status_badge(ui, label, color);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .small_button("Remove…")
+                .on_hover_text("Remove this saved server pairing")
+                .clicked()
+            {
+                *state.confirmation = Some(Confirmation::RemoveServer {
+                    server: key.clone(),
+                    name: server
+                        .name
+                        .clone()
+                        .unwrap_or_else(|| status_key.to_string()),
+                });
+            }
+            if ui
+                .small_button("Copy address")
+                .on_hover_text("Copy the Rust client.connect command")
+                .clicked()
+            {
+                ui.output_mut(|output| {
+                    output.copied_text = format!("client.connect {status_key}");
+                });
+            }
+        });
+    });
+}
+
+pub fn show_devices_pane(app_state: &AppState, state: &mut ServersState<'_>, ui: &mut egui::Ui) {
+    let Some(selected) = state.selected_server.clone() else {
+        ui.heading(egui::RichText::new("Smart devices").color(egui::Color32::WHITE));
+        ui.add_space(16.0);
         ui.label(
-            egui::RichText::new("Select a server to view its devices.")
-                .color(egui::Color32::from_rgb(115, 115, 115))
+            egui::RichText::new("Select a server to view its paired devices.")
+                .color(egui::Color32::from_rgb(165, 165, 165))
                 .size(13.0),
         );
         return;
     };
 
-    let mut parts = selected_ip_port.split(':');
-    let ip = parts.next().unwrap_or("");
-    let port_str = parts.next().unwrap_or("");
-    let target_port = port_str.parse::<u16>().unwrap_or(0);
+    show_devices_header(app_state, &selected, ui);
 
     let mut devices = app_state.devices_rx.borrow().clone();
-    let mut changed = false;
-    let mut device_to_remove = None;
+    let (has_devices, changed) = show_device_list(&mut devices, &selected, state, ui);
+    if !has_devices {
+        show_no_devices(ui);
+    }
 
+    if changed {
+        app_state.send_command(crate::ipc::IpcCommand::UpdateDevices(devices));
+    }
+}
+
+fn show_devices_header(app_state: &AppState, selected: &ServerKey, ui: &mut egui::Ui) {
+    let servers = app_state.servers_rx.borrow();
+    let server_name = servers
+        .iter()
+        .find(|server| server.ip == selected.ip && server.port == selected.port)
+        .and_then(|server| server.name.as_deref())
+        .unwrap_or("Selected server");
+    ui.heading(egui::RichText::new("Smart devices").color(egui::Color32::WHITE));
+    ui.label(
+        egui::RichText::new(format!("{server_name} · {}:{}", selected.ip, selected.port))
+            .color(egui::Color32::from_rgb(165, 165, 165))
+            .size(12.0),
+    );
+    ui.add_space(16.0);
+}
+
+fn show_device_list(
+    devices: &mut [crate::config::store::DeviceConfig],
+    selected: &ServerKey,
+    state: &mut ServersState<'_>,
+    ui: &mut egui::Ui,
+) -> (bool, bool) {
+    let mut has_devices = false;
+    let mut changed = false;
     egui::ScrollArea::vertical()
         .id_salt("devices_scroll")
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            let server_devices = devices
-                .iter_mut()
-                .enumerate()
-                .filter(|(_, d)| d.server_ip == ip && d.server_port == target_port);
-            let mut has_devices = false;
-
-            for (idx, device) in server_devices {
+            for device in devices.iter_mut().filter(|device| {
+                device.server_ip == selected.ip && device.server_port == selected.port
+            }) {
                 has_devices = true;
-                let card_frame = egui::Frame::none()
-                    .fill(egui::Color32::from_rgb(12, 12, 12))
-                    .stroke(egui::Stroke::new(
-                        1.0_f32,
-                        egui::Color32::from_rgb(31, 31, 31),
-                    ))
-                    .rounding(6.0)
-                    .inner_margin(12.0);
-
-                card_frame.show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.vertical(|ui| {
-                            ui.label(
-                                egui::RichText::new(&device.entity_name)
-                                    .color(egui::Color32::WHITE)
-                                    .size(14.0)
-                                    .strong(),
-                            );
-                            ui.add_space(4.0);
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    egui::RichText::new("Alerts:")
-                                        .color(egui::Color32::from_rgb(115, 115, 115))
-                                        .size(11.0),
-                                );
-                                if custom_toggle(ui, device.enabled).clicked() {
-                                    device.enabled = !device.enabled;
-                                    changed = true;
-                                }
-                            });
-                        });
-
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if *state.confirm_unpair_device == Some(idx) {
-                                let btn = egui::Button::new(
-                                    egui::RichText::new("Sure?").color(egui::Color32::WHITE),
-                                )
-                                .fill(egui::Color32::from_rgb(153, 27, 27));
-                                if ui.add_sized([45.0, 24.0], btn).clicked() {
-                                    device_to_remove = Some(idx);
-                                    *state.confirm_unpair_device = None;
-                                }
-                            } else {
-                                let btn = egui::Button::new(
-                                    egui::RichText::new("Unpair")
-                                        .color(egui::Color32::from_rgb(239, 68, 68)),
-                                )
-                                .fill(egui::Color32::from_rgb(20, 20, 20))
-                                .stroke(egui::Stroke::new(
-                                    1.0_f32,
-                                    egui::Color32::from_rgb(127, 29, 29),
-                                ));
-                                if ui.add(btn).clicked() {
-                                    *state.confirm_unpair_device = Some(idx);
-                                }
-                            }
-                        });
-                    });
-                });
-                ui.add_space(8.0);
-            }
-
-            if !has_devices {
-                ui.add_space(20.0);
-                ui.label(
-                    egui::RichText::new("No devices paired on this server.")
-                        .color(egui::Color32::from_rgb(115, 115, 115))
-                        .size(13.0),
-                );
+                changed |= show_device_card(device, selected, state, ui);
+                ui.add_space(10.0);
             }
         });
-
-    if let Some(idx) = device_to_remove {
-        devices.remove(idx);
-        changed = true;
-    }
-
-    if changed {
-        if let Some(tx) = &app_state.command_tx {
-            let _ = tx.try_send(crate::ipc::IpcCommand::UpdateDevices(devices));
-        }
-    }
+    (has_devices, changed)
 }
 
-fn show_empty_state(ui: &mut egui::Ui) {
-    ui.vertical_centered(|ui| {
-        ui.add_space(40.0);
-        ui.label(egui::RichText::new("No servers paired yet.").color(egui::Color32::WHITE).size(15.0).strong());
+fn show_device_card(
+    device: &mut crate::config::store::DeviceConfig,
+    selected: &ServerKey,
+    state: &mut ServersState<'_>,
+    ui: &mut egui::Ui,
+) -> bool {
+    let mut changed = false;
+    card_frame().show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.horizontal(|ui| {
+            show_device_identity(device, ui);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                changed = show_device_toggle(device, ui);
+            });
+        });
+        ui.add_space(10.0);
+        show_device_actions(device, selected, state, ui);
+    });
+    changed
+}
+
+fn show_device_identity(device: &crate::config::store::DeviceConfig, ui: &mut egui::Ui) {
+    ui.vertical(|ui| {
+        ui.label(
+            egui::RichText::new(&device.entity_name)
+                .color(egui::Color32::WHITE)
+                .size(14.0)
+                .strong(),
+        );
+        ui.label(
+            egui::RichText::new(format!("Entity ID {}", device.entity_id))
+                .color(egui::Color32::from_rgb(165, 165, 165))
+                .size(11.0),
+        );
+    });
+}
+
+fn show_device_toggle(device: &mut crate::config::store::DeviceConfig, ui: &mut egui::Ui) -> bool {
+    let response = custom_toggle(
+        ui,
+        &mut device.enabled,
+        &format!("Alerts for {}", device.entity_name),
+    )
+    .on_hover_text(if device.enabled {
+        "Disable alerts for this device"
+    } else {
+        "Enable alerts for this device"
+    });
+    ui.label(
+        egui::RichText::new(if device.enabled {
+            "Alerts on"
+        } else {
+            "Alerts off"
+        })
+        .color(egui::Color32::from_rgb(190, 190, 190))
+        .size(12.0),
+    );
+    response.changed()
+}
+
+fn show_device_actions(
+    device: &crate::config::store::DeviceConfig,
+    selected: &ServerKey,
+    state: &mut ServersState<'_>,
+    ui: &mut egui::Ui,
+) {
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new("Only notifications tagged with this entity are affected.")
+                .color(egui::Color32::from_rgb(150, 150, 150))
+                .size(11.0),
+        );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.button("Remove device…").clicked() {
+                *state.confirmation = Some(Confirmation::RemoveDevice {
+                    server: selected.clone(),
+                    entity_id: device.entity_id,
+                    name: device.entity_name.clone(),
+                });
+            }
+        });
+    });
+}
+
+fn show_no_devices(ui: &mut egui::Ui) {
+    card_frame().show(ui, |ui| {
+        ui.label(
+            egui::RichText::new("No smart devices are paired with this server yet.")
+                .color(egui::Color32::from_rgb(180, 180, 180))
+                .size(13.0),
+        );
+        ui.label(
+            egui::RichText::new(
+                "Pair a Smart Alarm in Rust+ while NODIrust is running and connected.",
+            )
+            .color(egui::Color32::from_rgb(155, 155, 155))
+            .size(12.0),
+        );
+    });
+}
+
+fn show_empty_state(app_state: &AppState, state: &mut ServersState<'_>, ui: &mut egui::Ui) {
+    card_frame().show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.label(
+            egui::RichText::new("Pair your first server")
+                .color(egui::Color32::WHITE)
+                .size(16.0)
+                .strong(),
+        );
         ui.add_space(8.0);
-        ui.label(egui::RichText::new("To pair a server, first pair it in the official Rust+ mobile app.\nThen, ensure your Steam account is linked here to sync them automatically.")
-            .color(egui::Color32::from_rgb(115, 115, 115))
-            .size(13.0));
+
+        let steam_ready = *app_state.steam_logged_in.borrow();
+        let push_ready = *app_state.push_status.borrow() == ConnectionStatus::Connected;
+        setup_step(ui, 1, "Link Steam in Overview", steam_ready);
+        setup_step(ui, 2, "Wait for the push connection", push_ready);
+        setup_step(
+            ui,
+            3,
+            "Initiate server pairing in the official Rust+ app",
+            false,
+        );
+        ui.add_space(14.0);
+        if ui.button("Open Overview").clicked() {
+            *state.active_tab = Tab::Dashboard;
+        }
+    });
+}
+
+fn setup_step(ui: &mut egui::Ui, number: usize, label: &str, complete: bool) {
+    ui.horizontal(|ui| {
+        let marker = if complete {
+            "Complete".to_string()
+        } else {
+            format!("Step {number}")
+        };
+        let color = if complete {
+            egui::Color32::from_rgb(74, 222, 128)
+        } else {
+            egui::Color32::from_rgb(190, 190, 190)
+        };
+        ui.label(egui::RichText::new(marker).color(color).size(11.0).strong());
+        ui.label(
+            egui::RichText::new(label)
+                .color(egui::Color32::from_rgb(190, 190, 190))
+                .size(12.0),
+        );
     });
 }

@@ -46,3 +46,61 @@ pub fn setup_tray() -> (TrayIcon, TrayMenu) {
         },
     )
 }
+
+pub fn run_event_loop() {
+    let (_tray_icon, tray_menu) = setup_tray();
+    let event_loop = winit::event_loop::EventLoop::new().unwrap();
+    let mut ui_process: Option<std::process::Child> = None;
+
+    #[allow(deprecated)]
+    event_loop
+        .run(move |_event, target| {
+            target.set_control_flow(winit::event_loop::ControlFlow::Wait);
+            handle_menu_event(target, &tray_menu, &mut ui_process);
+            handle_tray_click(&mut ui_process);
+        })
+        .unwrap();
+}
+
+fn handle_menu_event(
+    target: &winit::event_loop::ActiveEventLoop,
+    menu: &TrayMenu,
+    ui_process: &mut Option<std::process::Child>,
+) {
+    let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() else {
+        return;
+    };
+    if event.id.0 == menu.quit_id {
+        if let Some(mut child) = ui_process.take() {
+            let _ = child.kill();
+        }
+        target.exit();
+    } else if event.id.0 == menu.dashboard_id {
+        open_settings(ui_process);
+    }
+}
+
+fn handle_tray_click(ui_process: &mut Option<std::process::Child>) {
+    let Ok(tray_icon::TrayIconEvent::Click {
+        button: tray_icon::MouseButton::Left,
+        button_state: tray_icon::MouseButtonState::Up,
+        ..
+    }) = tray_icon::TrayIconEvent::receiver().try_recv()
+    else {
+        return;
+    };
+    open_settings(ui_process);
+}
+
+fn open_settings(ui_process: &mut Option<std::process::Child>) {
+    let should_spawn = match ui_process {
+        Some(child) => child.try_wait().map_or(true, |status| status.is_some()),
+        None => true,
+    };
+    if should_spawn && let Ok(executable) = std::env::current_exe() {
+        *ui_process = std::process::Command::new(executable)
+            .arg("--ui")
+            .spawn()
+            .ok();
+    }
+}

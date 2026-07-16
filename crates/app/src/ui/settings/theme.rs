@@ -1,11 +1,12 @@
+use crate::ipc::ConnectionStatus;
 use eframe::egui;
 
 pub fn apply_theme(ctx: &egui::Context) {
     let mut style = (*ctx.style()).clone();
 
     // --- 1. Spacing & Layout ---
-    style.spacing.item_spacing = egui::vec2(16.0, 16.0);
-    style.spacing.button_padding = egui::vec2(16.0, 8.0);
+    style.spacing.item_spacing = egui::vec2(12.0, 12.0);
+    style.spacing.button_padding = egui::vec2(14.0, 8.0);
 
     // --- 2. Visuals (Colors) ---
     let mut visuals = egui::Visuals::dark();
@@ -59,33 +60,82 @@ pub fn apply_theme(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
-// Custom iOS style toggle
-pub fn custom_toggle(ui: &mut egui::Ui, on: bool) -> egui::Response {
-    let desired_size = egui::vec2(36.0, 20.0);
-    let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
+pub fn card_frame() -> egui::Frame {
+    egui::Frame::none()
+        .fill(egui::Color32::from_rgb(12, 12, 12))
+        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(38, 38, 38)))
+        .rounding(8.0)
+        .inner_margin(16.0)
+}
+
+pub fn status_badge(ui: &mut egui::Ui, label: &str, color: egui::Color32) {
+    egui::Frame::none()
+        .fill(color.gamma_multiply(0.14))
+        .stroke(egui::Stroke::new(1.0, color.gamma_multiply(0.45)))
+        .rounding(12.0)
+        .inner_margin(egui::Margin::symmetric(10.0, 4.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(7.0, 7.0), egui::Sense::hover());
+                ui.painter().circle_filled(rect.center(), 3.5, color);
+                ui.label(egui::RichText::new(label).color(color).size(12.0).strong());
+            });
+        });
+}
+
+pub fn connection_status_display(status: ConnectionStatus) -> (&'static str, egui::Color32) {
+    match status {
+        ConnectionStatus::Connecting => ("Connecting", egui::Color32::from_rgb(250, 204, 21)),
+        ConnectionStatus::Connected => ("Connected", egui::Color32::from_rgb(74, 222, 128)),
+        ConnectionStatus::Reconnecting => ("Reconnecting", egui::Color32::from_rgb(250, 204, 21)),
+        ConnectionStatus::AuthenticationFailed => (
+            "Authentication failed",
+            egui::Color32::from_rgb(248, 113, 113),
+        ),
+        ConnectionStatus::Unreachable => ("Unavailable", egui::Color32::from_rgb(248, 113, 113)),
+    }
+}
+
+/// Draws an accessible, keyboard-operable toggle and updates `on` when activated.
+pub fn custom_toggle(ui: &mut egui::Ui, on: &mut bool, label: &str) -> egui::Response {
+    let desired_size = egui::vec2(44.0, 24.0);
+    let (rect, mut response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *on, label)
+    });
+
+    let keyboard_activated = response.has_focus()
+        && ui.input(|input| {
+            input.key_pressed(egui::Key::Enter) || input.key_pressed(egui::Key::Space)
+        });
+    if response.clicked() || keyboard_activated {
+        *on = !*on;
+        response.mark_changed();
+    }
 
     if ui.is_rect_visible(rect) {
-        let how_on = if on { 1.0 } else { 0.0 };
-        let radius = 10.0;
+        let how_on = ui.ctx().animate_bool(response.id, *on);
+        let radius = rect.height() / 2.0;
 
-        let bg_color = if on {
+        let bg_color = if *on {
             egui::Color32::WHITE
         } else {
-            egui::Color32::from_rgb(38, 38, 38)
+            egui::Color32::from_rgb(52, 52, 52)
         };
-        ui.painter()
-            .rect(rect, radius, bg_color, egui::Stroke::NONE);
+        let stroke = if response.has_focus() {
+            egui::Stroke::new(2.0, egui::Color32::from_rgb(125, 180, 255))
+        } else {
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(90, 90, 90))
+        };
+        ui.painter().rect(rect, radius, bg_color, stroke);
 
-        let circle_x = egui::lerp(
-            (rect.left() + radius + 2.0)..=(rect.right() - radius - 2.0),
-            how_on,
-        );
+        let circle_x = egui::lerp((rect.left() + radius)..=(rect.right() - radius), how_on);
         let center = egui::pos2(circle_x, rect.center().y);
 
-        let dot_color = if on {
+        let dot_color = if *on {
             egui::Color32::BLACK
         } else {
-            egui::Color32::from_rgb(156, 163, 175)
+            egui::Color32::from_rgb(210, 210, 210)
         };
         ui.painter()
             .circle(center, radius - 4.0, dot_color, egui::Stroke::NONE);

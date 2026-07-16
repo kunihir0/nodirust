@@ -15,10 +15,10 @@ impl Notifier {
                 std::thread::spawn(move || {
                     #[allow(unused_must_use)]
                     handle.wait_for_response(|response: &notify_rust::NotificationResponse| {
-                        if matches!(*response, notify_rust::NotificationResponse::Default) {
-                            if let Ok(exe) = std::env::current_exe() {
-                                std::process::Command::new(exe).arg("--ui").spawn().ok();
-                            }
+                        if matches!(*response, notify_rust::NotificationResponse::Default)
+                            && let Ok(exe) = std::env::current_exe()
+                        {
+                            std::process::Command::new(exe).arg("--ui").spawn().ok();
                         }
                     });
                 });

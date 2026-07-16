@@ -2,10 +2,10 @@ use crate::app_state::AppState;
 use crate::config::store::Store;
 use crate::ipc::{FullState, IpcCommand, IpcEvent};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-#[cfg(target_os = "windows")]
-use tokio::net::windows::named_pipe::ServerOptions;
 #[cfg(target_os = "macos")]
 use tokio::net::UnixListener;
+#[cfg(target_os = "windows")]
+use tokio::net::windows::named_pipe::ServerOptions;
 
 pub async fn run_ipc_server(app_state: AppState) {
     #[cfg(target_os = "macos")]
@@ -81,12 +81,14 @@ where
 
     // 1. Send Handshake
     let handshake = IpcEvent::FullState(FullState {
-        fcm_connected: *app_state.fcm_connected.borrow(),
+        push_status: *app_state.push_status.borrow(),
         steam_logged_in: *app_state.steam_logged_in.borrow(),
         servers: app_state.servers_rx.borrow().clone(),
         devices: app_state.devices_rx.borrow().clone(),
         server_statuses: app_state.server_statuses_rx.borrow().clone(),
         pending_pair: app_state.pending_pair_rx.borrow().clone(),
+        last_event: app_state.last_event_rx.borrow().clone(),
+        feedback: app_state.feedback_rx.borrow().clone(),
     });
 
     let mut serialized = serde_json::to_string(&handshake).unwrap();
@@ -96,12 +98,14 @@ where
     // 2. Set up multiplexing: Read from pipe vs Read from watch channels
     let mut reader = BufReader::new(read_half).lines();
 
-    let mut fcm_rx = app_state.fcm_connected.clone();
+    let mut push_rx = app_state.push_status.clone();
     let mut steam_rx = app_state.steam_logged_in.clone();
     let mut servers_rx = app_state.servers_rx.clone();
     let mut devices_rx = app_state.devices_rx.clone();
     let mut statuses_rx = app_state.server_statuses_rx.clone();
     let mut pending_rx = app_state.pending_pair_rx.clone();
+    let mut last_event_rx = app_state.last_event_rx.clone();
+    let mut feedback_rx = app_state.feedback_rx.clone();
 
     loop {
         tokio::select! {
@@ -115,8 +119,8 @@ where
                     break;
                 }
             }
-            Ok(()) = fcm_rx.changed() => {
-                let evt = IpcEvent::FcmStatusChanged(*fcm_rx.borrow());
+            Ok(()) = push_rx.changed() => {
+                let evt = IpcEvent::PushStatusChanged(*push_rx.borrow());
                 send_event(&mut write_half, evt).await?;
             }
             Ok(()) = steam_rx.changed() => {
@@ -139,6 +143,14 @@ where
                 let evt = IpcEvent::ServerStatusesUpdated(statuses_rx.borrow().clone());
                 send_event(&mut write_half, evt).await?;
             }
+            Ok(()) = last_event_rx.changed() => {
+                let evt = IpcEvent::LastEventChanged(last_event_rx.borrow().clone());
+                send_event(&mut write_half, evt).await?;
+            }
+            Ok(()) = feedback_rx.changed() => {
+                let evt = IpcEvent::FeedbackChanged(feedback_rx.borrow().clone());
+                send_event(&mut write_half, evt).await?;
+            }
         }
     }
 
@@ -156,36 +168,127 @@ where
 
 fn handle_command(cmd: IpcCommand, app_state: &AppState) {
     match cmd {
-        IpcCommand::UpdateServers(servers) => {
-            let mut config = Store::get_config();
-            config.servers.clone_from(&servers);
-            let _ = Store::save_config(&config);
+        IpcCommand::UpdateServers(servers) => update_servers(servers, app_state),
+        IpcCommand::UpdateDevices(devices) => update_devices(devices, app_state),
+        IpcCommand::RefreshSteamStatus => refresh_steam_status(app_state),
+        IpcCommand::UnlinkSteam => unlink_steam(app_state),
+        IpcCommand::DeclinePairing => decline_pairing(app_state),
+        IpcCommand::AcceptPairing(server) => accept_pairing(server, app_state),
+        IpcCommand::SendTestNotification => send_test_notification(app_state),
+    }
+}
+
+fn update_servers(servers: Vec<crate::config::store::ServerConfig>, app_state: &AppState) {
+    let mut config = Store::get_config();
+    config.servers.clone_from(&servers);
+    match Store::save_config(&config) {
+        Ok(()) => {
             let _ = app_state.servers_tx.send(servers);
+            send_success(app_state, "Server removed.");
         }
-        IpcCommand::UpdateDevices(devices) => {
-            let mut config = Store::get_config();
-            config.devices.clone_from(&devices);
-            let _ = Store::save_config(&config);
-            let _ = app_state.devices_tx.send(devices);
-        }
-        IpcCommand::SetSteamToken(token_opt) => {
-            if let Some(_token) = token_opt {
-                // Actually the token is saved directly by auth.rs.
-                // The UI process can just tell the daemon to refresh steam status.
-            } else {
-                let _ = Store::delete_steam_token();
-            }
-            let _ = app_state.steam_tx.send(Store::get_steam_token().is_ok());
-        }
-        IpcCommand::DeclinePairing => {
-            let _ = app_state.pending_pair_tx.send(None);
-        }
-        IpcCommand::AcceptPairing(server) => {
-            let mut config = Store::get_config();
-            config.servers.push(server);
-            let _ = Store::save_config(&config);
-            let _ = app_state.servers_tx.send(config.servers);
-            let _ = app_state.pending_pair_tx.send(None);
+        Err(error) => {
+            tracing::error!(%error, "Failed to save server changes");
+            send_error(app_state, "Could not save the server change.");
         }
     }
+}
+
+fn update_devices(devices: Vec<crate::config::store::DeviceConfig>, app_state: &AppState) {
+    let mut config = Store::get_config();
+    config.devices.clone_from(&devices);
+    match Store::save_config(&config) {
+        Ok(()) => {
+            let _ = app_state.devices_tx.send(devices);
+            send_success(app_state, "Alert preference saved.");
+        }
+        Err(error) => {
+            tracing::error!(%error, "Failed to save device changes");
+            send_error(app_state, "Could not save the alert preference.");
+        }
+    }
+}
+
+fn refresh_steam_status(app_state: &AppState) {
+    let logged_in = Store::get_steam_token().is_ok();
+    let _ = app_state.steam_tx.send(logged_in);
+    if logged_in {
+        tokio::spawn(crate::daemon::push::register_with_facepunch_current());
+        send_success(app_state, "Steam account linked.");
+    } else {
+        send_error(
+            app_state,
+            "Steam login did not produce a valid account token.",
+        );
+    }
+}
+
+fn unlink_steam(app_state: &AppState) {
+    if let Err(error) = Store::delete_steam_token() {
+        tracing::error!(%error, "Failed to delete Steam token");
+        send_error(app_state, "Could not unlink the Steam account.");
+        return;
+    }
+    let _ = app_state.steam_tx.send(false);
+    send_success(app_state, "Steam account unlinked.");
+}
+
+fn decline_pairing(app_state: &AppState) {
+    let _ = app_state.pending_pair_tx.send(None);
+}
+
+fn accept_pairing(server: crate::config::store::ServerConfig, app_state: &AppState) {
+    let mut config = Store::get_config();
+    upsert_server(&mut config.servers, server);
+    match Store::save_config(&config) {
+        Ok(()) => {
+            let _ = app_state.servers_tx.send(config.servers);
+            let _ = app_state.pending_pair_tx.send(None);
+            send_success(app_state, "Server paired successfully.");
+        }
+        Err(error) => {
+            tracing::error!(%error, "Failed to save paired server");
+            send_error(app_state, "Could not save the paired server.");
+        }
+    }
+}
+
+fn upsert_server(
+    servers: &mut Vec<crate::config::store::ServerConfig>,
+    server: crate::config::store::ServerConfig,
+) {
+    if let Some(existing) = servers
+        .iter_mut()
+        .find(|existing| existing.ip == server.ip && existing.port == server.port)
+    {
+        existing.player_id = server.player_id;
+        existing.player_token = server.player_token;
+        if server.name.is_some() {
+            existing.name = server.name;
+        }
+    } else {
+        servers.push(server);
+    }
+}
+
+fn send_test_notification(app_state: &AppState) {
+    crate::notify::Notifier::push(
+        "NODIrust test",
+        "Desktop notifications are reaching this device.",
+    );
+    send_success(
+        app_state,
+        "Test notification sent. Check system settings if it did not appear.",
+    );
+}
+
+fn send_success(app_state: &AppState, message: &str) {
+    let _ = app_state
+        .feedback_tx
+        .send(Some(crate::ipc::UiFeedback::success(message)));
+}
+
+fn send_error(app_state: &AppState, message: &str) {
+    let _ = app_state
+        .feedback_tx
+        .send(Some(crate::ipc::UiFeedback::error(message)));
 }
