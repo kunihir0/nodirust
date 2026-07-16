@@ -6,7 +6,7 @@ impl Notifier {
     pub fn push(title: &str, body: &str) {
         let mut notification = Notification::new();
         notification.summary(title).body(body);
-        
+
         #[cfg(target_os = "windows")]
         notification.app_id("NODIrust");
 

@@ -43,13 +43,18 @@ impl ApplicationHandler<()> for AuthApp {
                 match serde_json::from_str::<serde_json::Value>(msg) {
                     Ok(parsed) => {
                         if let Some(token_str) = parsed.get("Token").and_then(|t| t.as_str()) {
-                            tracing::info!("Captured valid Facepunch token! Saving and shutting down webview...");
-                            if let Err(e) = crate::config::store::Store::set_steam_token(token_str) {
+                            tracing::info!(
+                                "Captured valid Facepunch token! Saving and shutting down webview..."
+                            );
+                            if let Err(e) = crate::config::store::Store::set_steam_token(token_str)
+                            {
                                 tracing::error!("Failed to save token to disk: {}", e);
                             }
                             let _ = proxy.send_event(());
                         } else {
-                            tracing::warn!("Received valid JSON via IPC, but it lacked a Token string.");
+                            tracing::warn!(
+                                "Received valid JSON via IPC, but it lacked a Token string."
+                            );
                         }
                     }
                     Err(_) => {

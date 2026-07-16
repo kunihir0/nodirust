@@ -40,22 +40,25 @@ fn main() -> eframe::Result {
     Ok(())
 }
 
-fn create_app_state() -> (crate::app_state::AppState, Option<tokio::sync::mpsc::Receiver<crate::ipc::IpcCommand>>) {
+fn create_app_state() -> (
+    crate::app_state::AppState,
+    Option<tokio::sync::mpsc::Receiver<crate::ipc::IpcCommand>>,
+) {
     let (fcm_status_tx, fcm_status_rx) = tokio::sync::watch::channel(false);
     let initial_steam_login = crate::config::store::Store::get_steam_token().is_ok();
     let (steam_status_tx, steam_status_rx) = tokio::sync::watch::channel(initial_steam_login);
 
-    let (servers_tx, servers_rx) = tokio::sync::watch::channel(
-        crate::config::store::Store::get_servers()
-    );
+    let (servers_tx, servers_rx) =
+        tokio::sync::watch::channel(crate::config::store::Store::get_servers());
 
-    let (devices_tx, devices_rx) = tokio::sync::watch::channel(
-        crate::config::store::Store::get_devices()
-    );
-    
-    let (pending_pair_tx, pending_pair_rx) = tokio::sync::watch::channel::<Option<crate::config::store::ServerConfig>>(None);
+    let (devices_tx, devices_rx) =
+        tokio::sync::watch::channel(crate::config::store::Store::get_devices());
 
-    let (server_statuses_tx, server_statuses_rx) = tokio::sync::watch::channel(std::collections::HashMap::new());
+    let (pending_pair_tx, pending_pair_rx) =
+        tokio::sync::watch::channel::<Option<crate::config::store::ServerConfig>>(None);
+
+    let (server_statuses_tx, server_statuses_rx) =
+        tokio::sync::watch::channel(std::collections::HashMap::new());
 
     let (command_tx, command_rx) = tokio::sync::mpsc::channel(100);
 
@@ -153,11 +156,14 @@ fn run_daemon_process() {
             let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(100);
 
             // Run DaemonEngine
-            let engine = crate::daemon::engine::DaemonEngine::new(event_tx, app_state_bg.servers_rx.clone());
+            let engine =
+                crate::daemon::engine::DaemonEngine::new(event_tx, app_state_bg.servers_rx.clone());
             tokio::spawn(engine.run());
 
             // Run IPC Server
-            tokio::spawn(crate::daemon::ipc_server::run_ipc_server(app_state_bg.clone()));
+            tokio::spawn(crate::daemon::ipc_server::run_ipc_server(
+                app_state_bg.clone(),
+            ));
 
             let app_state_clone = app_state_bg;
             // Handle DaemonEvents (e.g. notifications)
@@ -180,22 +186,34 @@ fn run_daemon_process() {
                             crate::notify::Notifier::push(&title, &body);
                         }
                         crate::daemon::events::DaemonEvent::PairingRequest(server) => {
-                            tracing::info!("Received Server Pairing Request for {}:{}", server.ip, server.port);
+                            tracing::info!(
+                                "Received Server Pairing Request for {}:{}",
+                                server.ip,
+                                server.port
+                            );
                             let _ = app_state_clone.pending_pair_tx.send(Some(server.clone()));
-                            
+
                             let title = "Rust+ Server Pairing".to_string();
-                            let body = format!("New pairing request for {}:{}. Open dashboard to accept.", server.ip, server.port);
+                            let body = format!(
+                                "New pairing request for {}:{}. Open dashboard to accept.",
+                                server.ip, server.port
+                            );
                             crate::notify::Notifier::push(&title, &body);
                         }
                         crate::daemon::events::DaemonEvent::EntityPairingRequest(device) => {
-                            tracing::info!("Received Entity Pairing Request for {}", device.entity_name);
+                            tracing::info!(
+                                "Received Entity Pairing Request for {}",
+                                device.entity_name
+                            );
                             let mut devices = crate::config::store::Store::get_devices();
-                            if !devices.iter().any(|d| d.entity_id == device.entity_id && d.server_ip == device.server_ip) {
+                            if !devices.iter().any(|d| {
+                                d.entity_id == device.entity_id && d.server_ip == device.server_ip
+                            }) {
                                 let name = device.entity_name.clone();
                                 devices.push(device);
                                 let _ = crate::config::store::Store::set_devices(devices.clone());
                                 let _ = app_state_clone.devices_tx.send(devices);
-                                
+
                                 let title = "Rust+ Device Paired".to_string();
                                 let body = format!("Successfully paired with {name}!");
                                 crate::notify::Notifier::push(&title, &body);
@@ -205,25 +223,33 @@ fn run_daemon_process() {
                             tracing::info!("FCM Connection status changed: {}", connected);
                             let _ = app_state_clone.fcm_tx.send(connected);
                         }
-                        crate::daemon::events::DaemonEvent::ServerConnectionStatusChanged { server_ip_port, connected } => {
+                        crate::daemon::events::DaemonEvent::ServerConnectionStatusChanged {
+                            server_ip_port,
+                            connected,
+                        } => {
                             let mut statuses = app_state_clone.server_statuses_rx.borrow().clone();
                             statuses.insert(server_ip_port, connected);
                             let _ = app_state_clone.server_statuses_tx.send(statuses);
                         }
-                        crate::daemon::events::DaemonEvent::ServerNameDiscovered { ip, port, name } => {
-                            let mut servers = crate::config::store::Store::get_servers();
+                        crate::daemon::events::DaemonEvent::ServerNameDiscovered {
+                            ip,
+                            port,
+                            name,
+                        } => {
+                            let mut config = crate::config::store::Store::get_config();
                             let mut changed = false;
-                            for s in servers.iter_mut() {
-                                if s.ip == ip && s.port == port && s.name.as_deref() != Some(name.as_str()) {
+                            for s in config.servers.iter_mut() {
+                                if s.ip == ip
+                                    && s.port == port
+                                    && s.name.as_deref() != Some(name.as_str())
+                                {
                                     s.name = Some(name.clone());
                                     changed = true;
                                 }
                             }
                             if changed {
-                                let mut config = crate::config::store::Store::get_config();
-                                config.servers = servers.clone();
                                 let _ = crate::config::store::Store::save_config(&config);
-                                let _ = app_state_clone.servers_tx.send(servers);
+                                let _ = app_state_clone.servers_tx.send(config.servers);
                             }
                         }
                     }
@@ -242,7 +268,7 @@ fn run_daemon_process() {
 
     // Initialize System Tray on the main thread using winit
     let (_tray_icon, tray_menu) = crate::ui::tray::setup_tray();
-    
+
     let event_loop = winit::event_loop::EventLoop::new().unwrap();
     let dash_id = tray_menu.dashboard_id.clone();
     let quit_id = tray_menu.quit_id.clone();
@@ -250,16 +276,35 @@ fn run_daemon_process() {
     let mut ui_process: Option<std::process::Child> = None;
 
     #[allow(deprecated)]
-    event_loop.run(move |_event, target| {
-        target.set_control_flow(winit::event_loop::ControlFlow::Wait);
-        
-        if let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
-            if event.id.0 == quit_id {
-                if let Some(mut child) = ui_process.take() {
-                    let _ = child.kill();
+    event_loop
+        .run(move |_event, target| {
+            target.set_control_flow(winit::event_loop::ControlFlow::Wait);
+
+            if let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
+                if event.id.0 == quit_id {
+                    if let Some(mut child) = ui_process.take() {
+                        let _ = child.kill();
+                    }
+                    target.exit();
+                } else if event.id.0 == dash_id {
+                    let should_spawn = match &mut ui_process {
+                        Some(child) => child.try_wait().map_or(true, |s| s.is_some()),
+                        None => true,
+                    };
+                    if should_spawn {
+                        if let Ok(exe) = std::env::current_exe() {
+                            ui_process = std::process::Command::new(exe).arg("--ui").spawn().ok();
+                        }
+                    }
                 }
-                target.exit();
-            } else if event.id.0 == dash_id {
+            }
+
+            if let Ok(tray_icon::TrayIconEvent::Click {
+                button: tray_icon::MouseButton::Left,
+                button_state: tray_icon::MouseButtonState::Up,
+                ..
+            }) = tray_icon::TrayIconEvent::receiver().try_recv()
+            {
                 let should_spawn = match &mut ui_process {
                     Some(child) => child.try_wait().map_or(true, |s| s.is_some()),
                     None => true,
@@ -270,20 +315,6 @@ fn run_daemon_process() {
                     }
                 }
             }
-        }
-
-        if let Ok(tray_icon::TrayIconEvent::Click { button: tray_icon::MouseButton::Left, button_state: tray_icon::MouseButtonState::Up, .. }) = tray_icon::TrayIconEvent::receiver().try_recv() {
-            let should_spawn = match &mut ui_process {
-                Some(child) => child.try_wait().map_or(true, |s| s.is_some()),
-                None => true,
-            };
-            if should_spawn {
-                if let Ok(exe) = std::env::current_exe() {
-                    ui_process = std::process::Command::new(exe).arg("--ui").spawn().ok();
-                }
-            }
-        }
-    }).unwrap();
-
-
+        })
+        .unwrap();
 }

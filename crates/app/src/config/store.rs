@@ -81,7 +81,9 @@ impl Store {
     /// Retrieves the Steam authentication token from disk.
     pub fn get_steam_token() -> Result<String, String> {
         let config = Self::get_config();
-        config.steam_token.ok_or_else(|| "No token found".to_string())
+        config
+            .steam_token
+            .ok_or_else(|| "No token found".to_string())
     }
 
     /// Persists the Steam authentication token to disk.
@@ -144,7 +146,9 @@ impl Store {
         if let Some(proj_dirs) = directories::ProjectDirs::from("com", "nodirust", "nodirust") {
             // Use runtime_dir if available (e.g. /run/user/1000 on Linux, missing on macOS)
             // fallback to config_dir (e.g. ~/Library/Application Support/com.nodirust.nodirust)
-            let dir = proj_dirs.runtime_dir().unwrap_or_else(|| proj_dirs.config_dir());
+            let dir = proj_dirs
+                .runtime_dir()
+                .unwrap_or_else(|| proj_dirs.config_dir());
             let _ = std::fs::create_dir_all(dir);
             dir.join("nodirust.sock")
         } else {

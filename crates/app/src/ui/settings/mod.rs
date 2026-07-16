@@ -1,12 +1,12 @@
 //! Egui settings and status dashboard.
 
-pub mod theme;
 pub mod dashboard;
-pub mod servers;
 pub mod pair;
+pub mod servers;
+pub mod theme;
 
-use eframe::egui;
 use crate::app_state::AppState;
+use eframe::egui;
 use theme::apply_theme;
 
 #[derive(PartialEq)]
@@ -26,7 +26,7 @@ pub struct SettingsWindow {
 impl SettingsWindow {
     pub fn new(cc: &eframe::CreationContext<'_>, app_state: AppState) -> Self {
         apply_theme(&cc.egui_ctx);
-        
+
         Self {
             app_state,
             active_tab: Tab::Dashboard,
@@ -37,36 +37,54 @@ impl SettingsWindow {
     }
 
     fn draw_title_bar(&mut self, ctx: &egui::Context) {
-        let title_frame = egui::Frame::none()
-            .inner_margin(egui::Margin::symmetric(8.0, 4.0));
+        let title_frame = egui::Frame::none().inner_margin(egui::Margin::symmetric(8.0, 4.0));
 
         egui::TopBottomPanel::top("title_bar")
             .frame(title_frame)
             .exact_height(32.0)
             .show(ctx, |ui| {
                 let title_bar_rect = ui.max_rect();
-                let title_bar_response = ui.interact(title_bar_rect, ui.id(), egui::Sense::click_and_drag());
+                let title_bar_response =
+                    ui.interact(title_bar_rect, ui.id(), egui::Sense::click_and_drag());
                 if title_bar_response.is_pointer_button_down_on() {
                     ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
                 }
 
                 ui.horizontal_centered(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let close_btn = egui::Button::new(egui::RichText::new("X").size(14.0).strong().color(egui::Color32::from_rgb(150, 150, 150)))
-                            .fill(egui::Color32::TRANSPARENT)
-                            .stroke(egui::Stroke::NONE)
-                            .rounding(12.0);
-                        
-                        if ui.add_sized([24.0, 24.0], close_btn).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                        let close_btn = egui::Button::new(
+                            egui::RichText::new("X")
+                                .size(14.0)
+                                .strong()
+                                .color(egui::Color32::from_rgb(150, 150, 150)),
+                        )
+                        .fill(egui::Color32::TRANSPARENT)
+                        .stroke(egui::Stroke::NONE)
+                        .rounding(12.0);
+
+                        if ui
+                            .add_sized([24.0, 24.0], close_btn)
+                            .on_hover_cursor(egui::CursorIcon::PointingHand)
+                            .clicked()
+                        {
                             std::process::exit(0);
                         }
-                        
-                        let min_btn = egui::Button::new(egui::RichText::new("-").size(16.0).strong().color(egui::Color32::from_rgb(150, 150, 150)))
-                            .fill(egui::Color32::TRANSPARENT)
-                            .stroke(egui::Stroke::NONE)
-                            .rounding(12.0);
 
-                        if ui.add_sized([24.0, 24.0], min_btn).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                        let min_btn = egui::Button::new(
+                            egui::RichText::new("-")
+                                .size(16.0)
+                                .strong()
+                                .color(egui::Color32::from_rgb(150, 150, 150)),
+                        )
+                        .fill(egui::Color32::TRANSPARENT)
+                        .stroke(egui::Stroke::NONE)
+                        .rounding(12.0);
+
+                        if ui
+                            .add_sized([24.0, 24.0], min_btn)
+                            .on_hover_cursor(egui::CursorIcon::PointingHand)
+                            .clicked()
+                        {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                         }
                     });
@@ -78,38 +96,59 @@ impl SettingsWindow {
         let sidebar_frame = egui::Frame::none()
             .fill(egui::Color32::BLACK) // #000000
             .inner_margin(egui::Margin::same(16.0))
-            .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(31, 31, 31)));
+            .stroke(egui::Stroke::new(
+                1.0_f32,
+                egui::Color32::from_rgb(31, 31, 31),
+            ));
 
-        egui::SidePanel::left("nav_panel").resizable(false).frame(sidebar_frame).show(ctx, |ui| {
-            ui.add_space(10.0);
-            
-            // Header / Logo
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("NODI").strong().size(16.0).color(egui::Color32::WHITE));
-                ui.label(egui::RichText::new("rust").size(16.0).color(egui::Color32::from_rgb(115, 115, 115)));
+        egui::SidePanel::left("nav_panel")
+            .resizable(false)
+            .frame(sidebar_frame)
+            .show(ctx, |ui| {
+                ui.add_space(10.0);
+
+                // Header / Logo
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("NODI")
+                            .strong()
+                            .size(16.0)
+                            .color(egui::Color32::WHITE),
+                    );
+                    ui.label(
+                        egui::RichText::new("rust")
+                            .size(16.0)
+                            .color(egui::Color32::from_rgb(115, 115, 115)),
+                    );
+                });
+
+                ui.add_space(20.0);
+
+                let nav_button = |ui: &mut egui::Ui, text: &str, active: bool| -> egui::Response {
+                    let text_rt = egui::RichText::new(text).size(13.0).color(if active {
+                        egui::Color32::WHITE
+                    } else {
+                        egui::Color32::from_rgb(115, 115, 115)
+                    });
+
+                    let btn = egui::Button::new(text_rt)
+                        .fill(if active {
+                            egui::Color32::from_rgb(17, 17, 17)
+                        } else {
+                            egui::Color32::TRANSPARENT
+                        })
+                        .stroke(egui::Stroke::NONE);
+
+                    ui.add_sized([ui.available_width(), 36.0], btn)
+                };
+
+                if nav_button(ui, "Dashboard", self.active_tab == Tab::Dashboard).clicked() {
+                    self.active_tab = Tab::Dashboard;
+                }
+                if nav_button(ui, "Servers & Devices", self.active_tab == Tab::Servers).clicked() {
+                    self.active_tab = Tab::Servers;
+                }
             });
-            
-            ui.add_space(20.0);
-
-            let nav_button = |ui: &mut egui::Ui, text: &str, active: bool| -> egui::Response {
-                let text_rt = egui::RichText::new(text).size(13.0).color(
-                    if active { egui::Color32::WHITE } else { egui::Color32::from_rgb(115, 115, 115) }
-                );
-                
-                let btn = egui::Button::new(text_rt)
-                    .fill(if active { egui::Color32::from_rgb(17, 17, 17) } else { egui::Color32::TRANSPARENT })
-                    .stroke(egui::Stroke::NONE);
-                    
-                ui.add_sized([ui.available_width(), 36.0], btn)
-            };
-
-            if nav_button(ui, "Dashboard", self.active_tab == Tab::Dashboard).clicked() {
-                self.active_tab = Tab::Dashboard;
-            }
-            if nav_button(ui, "Servers & Devices", self.active_tab == Tab::Servers).clicked() {
-                self.active_tab = Tab::Servers;
-            }
-        });
     }
 
     fn draw_main_content(&mut self, ctx: &egui::Context) {
@@ -125,7 +164,7 @@ impl SettingsWindow {
                 confirm_unpair_server: &mut self.confirm_unpair_server,
                 confirm_unpair_device: &mut self.confirm_unpair_device,
             };
-            
+
             egui::SidePanel::left("servers_list_panel")
                 .resizable(true)
                 .min_width(200.0)
@@ -134,42 +173,48 @@ impl SettingsWindow {
                 .show(ctx, |ui| {
                     servers::show_servers_pane(&self.app_state, &mut state, ui);
                 });
-                
-            egui::CentralPanel::default().frame(central_frame).show(ctx, |ui| {
-                servers::show_devices_pane(&self.app_state, &mut state, ui);
-                draw_resize_grip(ctx, ui);
-            });
+
+            egui::CentralPanel::default()
+                .frame(central_frame)
+                .show(ctx, |ui| {
+                    servers::show_devices_pane(&self.app_state, &mut state, ui);
+                    draw_resize_grip(ctx, ui);
+                });
             return;
         }
 
-        egui::CentralPanel::default().frame(central_frame).show(ctx, |ui| {
-            if let Some(server) = pending_pair {
-                pair::show_pair_screen(&self.app_state, ui, &server, &mut self.active_tab);
-            } else {
-                match self.active_tab {
-                    Tab::Dashboard => dashboard::show_dashboard(&self.app_state, ui),
-                    Tab::Servers => unreachable!(),
+        egui::CentralPanel::default()
+            .frame(central_frame)
+            .show(ctx, |ui| {
+                if let Some(server) = pending_pair {
+                    pair::show_pair_screen(&self.app_state, ui, &server, &mut self.active_tab);
+                } else {
+                    match self.active_tab {
+                        Tab::Dashboard => dashboard::show_dashboard(&self.app_state, ui),
+                        Tab::Servers => unreachable!(),
+                    }
                 }
-            }
-            draw_resize_grip(ctx, ui);
-        });
+                draw_resize_grip(ctx, ui);
+            });
     }
 }
 
 fn draw_resize_grip(ctx: &egui::Context, ui: &mut egui::Ui) {
-        let grip_size = 16.0;
-        let rect = egui::Rect::from_min_size(
-            ui.max_rect().max - egui::vec2(grip_size, grip_size),
-            egui::vec2(grip_size, grip_size),
-        );
-        let response = ui.interact(rect, ui.id().with("resize_grip"), egui::Sense::drag());
-        if response.drag_started() {
-            ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(egui::ResizeDirection::SouthEast));
-        }
-        if response.hovered() || response.dragged() {
-            ctx.set_cursor_icon(egui::CursorIcon::ResizeNwSe);
-        }
+    let grip_size = 16.0;
+    let rect = egui::Rect::from_min_size(
+        ui.max_rect().max - egui::vec2(grip_size, grip_size),
+        egui::vec2(grip_size, grip_size),
+    );
+    let response = ui.interact(rect, ui.id().with("resize_grip"), egui::Sense::drag());
+    if response.drag_started() {
+        ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(
+            egui::ResizeDirection::SouthEast,
+        ));
     }
+    if response.hovered() || response.dragged() {
+        ctx.set_cursor_icon(egui::CursorIcon::ResizeNwSe);
+    }
+}
 
 impl eframe::App for SettingsWindow {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -189,7 +234,7 @@ impl eframe::App for SettingsWindow {
         ctx.layer_painter(egui::LayerId::background()).rect_filled(
             ctx.screen_rect(),
             egui::Rounding::same(8.0), // Rounded corners for the whole app
-            egui::Color32::from_rgb(5, 5, 5)
+            egui::Color32::from_rgb(5, 5, 5),
         );
 
         self.draw_title_bar(ctx);

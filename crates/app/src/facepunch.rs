@@ -1,5 +1,3 @@
-
-
 pub struct FacepunchClient {
     client: reqwest::Client,
     steam_token: String,
@@ -14,7 +12,7 @@ impl FacepunchClient {
     }
 
     /// Registers the FCM push token with Facepunch so this device receives notifications
-    /// 
+    ///
     /// # Errors
     /// Returns an error if the request fails or serialization fails.
     pub async fn register_push(&self, expo_token: &str) -> Result<(), reqwest::Error> {
@@ -28,18 +26,17 @@ impl FacepunchClient {
             "PushKind": 3
         });
 
-        let res = self.client
-            .post(url)
-            .json(&payload)
-            .send()
-            .await?;
+        let res = self.client.post(url).json(&payload).send().await?;
 
         let status = res.status();
         let body = res.text().await?;
         if !status.is_success() {
             tracing::error!("register_push failed with {}: {}", status, body);
             // Return an error by forcing reqwest to fail since we can't construct reqwest::Error
-            let _ = reqwest::Client::new().get("http://0.0.0.0:0").send().await?;
+            let _ = reqwest::Client::new()
+                .get("http://0.0.0.0:0")
+                .send()
+                .await?;
         }
 
         Ok(())

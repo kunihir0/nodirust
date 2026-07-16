@@ -6,7 +6,10 @@ use tokio::net::UnixStream;
 #[cfg(target_os = "windows")]
 use tokio::net::windows::named_pipe::ClientOptions;
 
-pub async fn run_ipc_client(app_state: AppState, mut command_rx: tokio::sync::mpsc::Receiver<IpcCommand>) {
+pub async fn run_ipc_client(
+    app_state: AppState,
+    command_rx: tokio::sync::mpsc::Receiver<IpcCommand>,
+) {
     #[cfg(target_os = "macos")]
     {
         let socket_path = crate::config::store::Store::get_ipc_socket_path();
@@ -40,8 +43,12 @@ pub async fn run_ipc_client(app_state: AppState, mut command_rx: tokio::sync::mp
     }
 }
 
-async fn run_client_loop<R, W>(read_half: R, write_half: &mut W, app_state: AppState, mut command_rx: tokio::sync::mpsc::Receiver<IpcCommand>)
-where
+async fn run_client_loop<R, W>(
+    read_half: R,
+    write_half: &mut W,
+    app_state: AppState,
+    mut command_rx: tokio::sync::mpsc::Receiver<IpcCommand>,
+) where
     R: tokio::io::AsyncRead + Unpin,
     W: tokio::io::AsyncWrite + Unpin,
 {
@@ -98,13 +105,16 @@ fn handle_event(evt: IpcEvent, app_state: &AppState) {
         IpcEvent::ServerStatusesUpdated(statuses) => {
             let _ = app_state.server_statuses_tx.send(statuses);
         }
-        IpcEvent::ServerStatusChanged { server_ip_port, connected } => {
+        IpcEvent::ServerStatusChanged {
+            server_ip_port,
+            connected,
+        } => {
             let mut current = app_state.server_statuses_rx.borrow().clone();
             current.insert(server_ip_port, connected);
             let _ = app_state.server_statuses_tx.send(current);
         }
     }
-    
+
     // Refresh UI
     let ctx_lock = app_state.ui_context.lock().unwrap();
     if let Some(ctx) = &*ctx_lock {

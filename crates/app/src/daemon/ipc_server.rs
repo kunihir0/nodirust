@@ -1,11 +1,11 @@
 use crate::app_state::AppState;
-use crate::ipc::{FullState, IpcCommand, IpcEvent};
 use crate::config::store::Store;
+use crate::ipc::{FullState, IpcCommand, IpcEvent};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-#[cfg(target_os = "macos")]
-use tokio::net::{UnixListener, UnixStream};
 #[cfg(target_os = "windows")]
 use tokio::net::windows::named_pipe::ServerOptions;
+#[cfg(target_os = "macos")]
+use tokio::net::UnixListener;
 
 pub async fn run_ipc_server(app_state: AppState) {
     #[cfg(target_os = "macos")]
@@ -33,7 +33,10 @@ pub async fn run_ipc_server(app_state: AppState) {
     #[cfg(target_os = "windows")]
     {
         const PIPE_NAME: &str = r"\\.\pipe\nodirust_ipc";
-        match ServerOptions::new().first_pipe_instance(true).create(PIPE_NAME) {
+        match ServerOptions::new()
+            .first_pipe_instance(true)
+            .create(PIPE_NAME)
+        {
             Ok(mut server) => {
                 tracing::info!("IPC Server listening on {}", PIPE_NAME);
                 loop {
@@ -43,7 +46,7 @@ pub async fn run_ipc_server(app_state: AppState) {
                     }
                     let state = app_state.clone();
                     let stream = server;
-                    
+
                     // Create the next server instance to accept future connections
                     server = match ServerOptions::new().create(PIPE_NAME) {
                         Ok(s) => s,
@@ -72,10 +75,10 @@ where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
     tracing::info!("UI Client connected via IPC");
-    
+
     // Split into read/write half
     let (read_half, mut write_half) = tokio::io::split(stream);
-    
+
     // 1. Send Handshake
     let handshake = IpcEvent::FullState(FullState {
         fcm_connected: *app_state.fcm_connected.borrow(),
@@ -85,14 +88,14 @@ where
         server_statuses: app_state.server_statuses_rx.borrow().clone(),
         pending_pair: app_state.pending_pair_rx.borrow().clone(),
     });
-    
+
     let mut serialized = serde_json::to_string(&handshake).unwrap();
     serialized.push('\n');
     write_half.write_all(serialized.as_bytes()).await?;
 
     // 2. Set up multiplexing: Read from pipe vs Read from watch channels
     let mut reader = BufReader::new(read_half).lines();
-    
+
     let mut fcm_rx = app_state.fcm_connected.clone();
     let mut steam_rx = app_state.steam_logged_in.clone();
     let mut servers_rx = app_state.servers_rx.clone();
@@ -138,7 +141,7 @@ where
             }
         }
     }
-    
+
     Ok(())
 }
 
@@ -167,7 +170,7 @@ fn handle_command(cmd: IpcCommand, app_state: &AppState) {
         }
         IpcCommand::SetSteamToken(token_opt) => {
             if let Some(_token) = token_opt {
-                // Actually the token is saved directly by auth.rs. 
+                // Actually the token is saved directly by auth.rs.
                 // The UI process can just tell the daemon to refresh steam status.
             } else {
                 let _ = Store::delete_steam_token();

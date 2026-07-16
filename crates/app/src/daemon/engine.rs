@@ -17,8 +17,14 @@ pub struct DaemonEngine {
 }
 
 impl DaemonEngine {
-    pub fn new(event_tx: mpsc::Sender<DaemonEvent>, servers_rx: tokio::sync::watch::Receiver<Vec<crate::config::store::ServerConfig>>) -> Self {
-        Self { event_tx, servers_rx }
+    pub fn new(
+        event_tx: mpsc::Sender<DaemonEvent>,
+        servers_rx: tokio::sync::watch::Receiver<Vec<crate::config::store::ServerConfig>>,
+    ) -> Self {
+        Self {
+            event_tx,
+            servers_rx,
+        }
     }
 
     pub async fn run(mut self) {
@@ -33,7 +39,8 @@ impl DaemonEngine {
         // Paired servers are received over FCM push notifications and saved to config locally.
         // Load config to spawn rustplus websocket loops
         let initial_servers = Store::get_config().servers;
-        let mut server_tasks: std::collections::HashMap<String, tokio::task::AbortHandle> = std::collections::HashMap::new();
+        let mut server_tasks: std::collections::HashMap<String, tokio::task::AbortHandle> =
+            std::collections::HashMap::new();
 
         for server in initial_servers {
             let r_tx = self.event_tx.clone();
@@ -57,27 +64,27 @@ impl DaemonEngine {
                 }
                 Ok(()) = self.servers_rx.changed() => {
                     let new_servers = self.servers_rx.borrow().clone();
-                    
+
                     // Stop removed servers
                     let mut new_ip_ports = std::collections::HashSet::new();
                     for s in &new_servers {
                         new_ip_ports.insert(format!("{}:{}", s.ip, s.port));
                     }
-                    
+
                     let mut to_remove = Vec::new();
                     for ip_port in server_tasks.keys() {
                         if !new_ip_ports.contains(ip_port) {
                             to_remove.push(ip_port.clone());
                         }
                     }
-                    
+
                     for ip_port in to_remove {
                         if let Some(handle) = server_tasks.remove(&ip_port) {
                             tracing::info!("Stopping connection to removed server {}", ip_port);
                             handle.abort();
                         }
                     }
-                    
+
                     // Start new servers
                     for server in &new_servers {
                         let ip_port = format!("{}:{}", server.ip, server.port);
@@ -91,7 +98,7 @@ impl DaemonEngine {
                             server_tasks.insert(ip_port, abort_handle);
                         }
                     }
-                    
+
                 }
             }
         }
@@ -111,7 +118,7 @@ impl DaemonEngine {
             } else {
                 tracing::info!("No FCM credentials found. Registering new device...");
                 let http = reqwest::Client::new();
-                
+
                 // Magic values from CLI prototype
                 let api_key = "AIzaSyB5y2y-Tzqb4-I4Qnlsh_9naYv_TD8pCvY";
                 let project_id = "rust-companion-app";
@@ -128,12 +135,20 @@ impl DaemonEngine {
                     gms_app_id,
                     pkg_name,
                     pkg_cert,
-                ).await {
+                )
+                .await
+                {
                     Ok(reg) => {
                         tracing::info!("Swapping FCM token for Expo token...");
                         let device_id = uuid::Uuid::new_v4().to_string();
 
-                        match crate::daemon::expo::get_expo_push_token(&http, &reg.fcm.token, &device_id).await {
+                        match crate::daemon::expo::get_expo_push_token(
+                            &http,
+                            &reg.fcm.token,
+                            &device_id,
+                        )
+                        .await
+                        {
                             Ok(expo_token) => {
                                 let c = crate::config::store::FcmCredentials {
                                     android_id: reg.gcm.android_id,
@@ -207,9 +222,13 @@ impl DaemonEngine {
                                 .unwrap_or_default()
                                 .as_millis() as i64;
                             // If `sent` is smaller than 20 billion, it's likely in seconds, so multiply by 1000
-                            let sent_ms = if sent < 20_000_000_000 { sent * 1000 } else { sent };
+                            let sent_ms = if sent < 20_000_000_000 {
+                                sent * 1000
+                            } else {
+                                sent
+                            };
                             let age_ms = now_ms.saturating_sub(sent_ms);
-                            
+
                             // 5 minutes in ms = 300_000
                             if age_ms > 300_000 {
                                 tracing::info!("Ignoring old notification ({} ms old)", age_ms);
@@ -221,7 +240,7 @@ impl DaemonEngine {
                         let mut body = "Unknown event".to_string();
 
                         let mut json_payload = None;
-                        
+
                         // 1. Try parsing decrypted payload (used for smart alarms)
                         if let Ok(text) = String::from_utf8(notification.decrypted.clone()) {
                             tracing::info!("Received Decrypted Push Payload: {}", text);
@@ -236,8 +255,13 @@ impl DaemonEngine {
                         if json_payload.is_none() {
                             for app_data in &notification.app_data {
                                 if app_data.key == "body" {
-                                    tracing::info!("Received Unencrypted AppData Body: {}", app_data.value);
-                                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&app_data.value) {
+                                    tracing::info!(
+                                        "Received Unencrypted AppData Body: {}",
+                                        app_data.value
+                                    );
+                                    if let Ok(json) =
+                                        serde_json::from_str::<serde_json::Value>(&app_data.value)
+                                    {
                                         json_payload = Some(json);
                                     }
                                 }
@@ -248,8 +272,13 @@ impl DaemonEngine {
                         if json_payload.is_none() {
                             for app_data in &notification.app_data {
                                 if app_data.key == "body" {
-                                    tracing::info!("Received Unencrypted AppData Body: {}", app_data.value);
-                                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&app_data.value) {
+                                    tracing::info!(
+                                        "Received Unencrypted AppData Body: {}",
+                                        app_data.value
+                                    );
+                                    if let Ok(json) =
+                                        serde_json::from_str::<serde_json::Value>(&app_data.value)
+                                    {
                                         json_payload = Some(json);
                                     }
                                 }
@@ -262,25 +291,48 @@ impl DaemonEngine {
                         let mut server_port = 0;
 
                         if let Some(json) = &json_payload {
-                            req_type = json.get("type").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            
+                            req_type = json
+                                .get("type")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+
                             // Infer type if missing
                             if req_type.is_empty() {
                                 if json.get("entityId").is_some() && json.get("ip").is_some() {
                                     req_type = "entity".to_string();
-                                } else if json.get("playerId").is_some() && json.get("playerToken").is_some() && json.get("ip").is_some() {
+                                } else if json.get("playerId").is_some()
+                                    && json.get("playerToken").is_some()
+                                    && json.get("ip").is_some()
+                                {
                                     req_type = "server".to_string();
                                 }
                             }
-                            
+
                             if let Some(ip) = json.get("ip").and_then(|v| v.as_str()) {
                                 server_ip = ip.to_string();
-                                if let Some(port) = json.get("port").and_then(|v| v.as_u64().map(|u| u as u16).or_else(|| v.as_str().and_then(|s| s.parse().ok()))) {
+                                if let Some(port) = json.get("port").and_then(|v| {
+                                    v.as_u64()
+                                        .map(|u| u as u16)
+                                        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                                }) {
                                     server_port = port;
-                                    if let Some(player_id) = json.get("playerId").and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))) {
-                                        if let Some(player_token) = json.get("playerToken").and_then(|v| v.as_i64().map(|i| i as i32).or_else(|| v.as_str().and_then(|s| s.parse().ok()))) {
+                                    if let Some(player_id) = json.get("playerId").and_then(|v| {
+                                        v.as_u64()
+                                            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                                    }) {
+                                        if let Some(player_token) =
+                                            json.get("playerToken").and_then(|v| {
+                                                v.as_i64().map(|i| i as i32).or_else(|| {
+                                                    v.as_str().and_then(|s| s.parse().ok())
+                                                })
+                                            })
+                                        {
                                             if req_type == "server" {
-                                                let name = json.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
+                                                let name = json
+                                                    .get("name")
+                                                    .and_then(|v| v.as_str())
+                                                    .map(|s| s.to_string());
                                                 let server = crate::config::store::ServerConfig {
                                                     ip: ip.to_string(),
                                                     port,
@@ -288,17 +340,34 @@ impl DaemonEngine {
                                                     player_token,
                                                     name,
                                                 };
-                                                let _ = event_tx.try_send(DaemonEvent::PairingRequest(server));
+                                                let _ = event_tx
+                                                    .try_send(DaemonEvent::PairingRequest(server));
                                                 is_pairing = true;
                                             }
                                         }
                                     }
-                                    
+
                                     // Entity pairing doesn't necessarily need playerToken in the same way, but it usually comes with ip/port
                                     if req_type == "entity" {
-                                        if let Some(entity_id) = json.get("entityId").and_then(|v| v.as_u64().map(|u| u as u32).or_else(|| v.as_str().and_then(|s| s.parse().ok()))) {
-                                            if let Some(entity_type) = json.get("entityType").and_then(|v| v.as_u64().map(|u| u as u32).or_else(|| v.as_str().and_then(|s| s.parse().ok()))) {
-                                                let entity_name = json.get("entityName").and_then(|v| v.as_str()).unwrap_or("Smart Device").to_string();
+                                        if let Some(entity_id) =
+                                            json.get("entityId").and_then(|v| {
+                                                v.as_u64().map(|u| u as u32).or_else(|| {
+                                                    v.as_str().and_then(|s| s.parse().ok())
+                                                })
+                                            })
+                                        {
+                                            if let Some(entity_type) =
+                                                json.get("entityType").and_then(|v| {
+                                                    v.as_u64().map(|u| u as u32).or_else(|| {
+                                                        v.as_str().and_then(|s| s.parse().ok())
+                                                    })
+                                                })
+                                            {
+                                                let entity_name = json
+                                                    .get("entityName")
+                                                    .and_then(|v| v.as_str())
+                                                    .unwrap_or("Smart Device")
+                                                    .to_string();
                                                 let device = crate::config::store::DeviceConfig {
                                                     entity_id,
                                                     entity_name,
@@ -307,7 +376,9 @@ impl DaemonEngine {
                                                     server_port: port,
                                                     enabled: true,
                                                 };
-                                                let _ = event_tx.try_send(DaemonEvent::EntityPairingRequest(device));
+                                                let _ = event_tx.try_send(
+                                                    DaemonEvent::EntityPairingRequest(device),
+                                                );
                                                 is_pairing = true;
                                             }
                                         }
@@ -336,7 +407,11 @@ impl DaemonEngine {
                         // Fallback to JSON properties if app_data didn't have title/message
                         if let Some(json) = &json_payload {
                             if title == "Rust+" || title.is_empty() {
-                                if let Some(t) = json.get("title").or(json.get("name")).and_then(|v| v.as_str()) {
+                                if let Some(t) = json
+                                    .get("title")
+                                    .or(json.get("name"))
+                                    .and_then(|v| v.as_str())
+                                {
                                     title = t.to_string();
                                 }
                             }
@@ -348,15 +423,27 @@ impl DaemonEngine {
                                 }
                             }
                         }
-                        
+
                         // Check if we should suppress the alarm based on user toggles
                         if req_type == "alarm" && !server_ip.is_empty() {
                             let config = Store::get_config();
-                            let server_devices: Vec<_> = config.devices.iter().filter(|d| d.server_ip == server_ip && d.server_port == server_port).collect();
-                            
+                            let server_devices: Vec<_> = config
+                                .devices
+                                .iter()
+                                .filter(|d| {
+                                    d.server_ip == server_ip && d.server_port == server_port
+                                })
+                                .collect();
+
                             // If we have paired devices for this server, and ALL of them are disabled, suppress the notification
-                            if !server_devices.is_empty() && server_devices.iter().all(|d| !d.enabled) {
-                                tracing::info!("Suppressing alarm for {}:{} because all devices are disabled.", server_ip, server_port);
+                            if !server_devices.is_empty()
+                                && server_devices.iter().all(|d| !d.enabled)
+                            {
+                                tracing::info!(
+                                    "Suppressing alarm for {}:{} because all devices are disabled.",
+                                    server_ip,
+                                    server_port
+                                );
                                 continue;
                             }
                         }
@@ -405,16 +492,18 @@ impl DaemonEngine {
                         connected: true,
                     });
                     backoff = Duration::from_secs(1);
-                    
-                    if let Ok(msg) = client.get_info().await {
-                        if let Some(resp) = msg.response {
-                            if let Some(info) = resp.info {
-                                let _ = event_tx.try_send(DaemonEvent::ServerNameDiscovered {
-                                    ip: server.ip.clone(),
-                                    port: server.port,
-                                    name: info.name,
-                                });
-                            }
+
+                    if server.name.is_none() {
+                        if let Ok(Some(info)) = client
+                            .get_info()
+                            .await
+                            .map(|msg| msg.response.and_then(|r| r.info))
+                        {
+                            let _ = event_tx.try_send(DaemonEvent::ServerNameDiscovered {
+                                ip: server.ip.clone(),
+                                port: server.port,
+                                name: info.name,
+                            });
                         }
                     }
 

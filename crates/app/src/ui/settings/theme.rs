@@ -17,10 +17,10 @@ pub fn apply_theme(ctx: &egui::Context) {
     let accent_white = egui::Color32::WHITE;
 
     visuals.window_fill = app_bg;
-    visuals.panel_fill = app_bg; 
+    visuals.panel_fill = app_bg;
 
     visuals.override_text_color = Some(primary_text);
-    
+
     visuals.selection.bg_fill = egui::Color32::from_rgb(17, 17, 17); // #111111 (active nav)
     visuals.selection.stroke = egui::Stroke::NONE;
 
@@ -47,9 +47,15 @@ pub fn apply_theme(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     fonts.font_data.insert(
         "Nunito".to_owned(),
-        std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../../../fonts/Nunito-Regular.ttf"))),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+            "../../../fonts/Nunito-Regular.ttf"
+        ))),
     );
-    fonts.families.get_mut(&egui::FontFamily::Proportional).unwrap().insert(0, "Nunito".to_owned());
+    fonts
+        .families
+        .get_mut(&egui::FontFamily::Proportional)
+        .unwrap()
+        .insert(0, "Nunito".to_owned());
     ctx.set_fonts(fonts);
 }
 
@@ -57,19 +63,32 @@ pub fn apply_theme(ctx: &egui::Context) {
 pub fn custom_toggle(ui: &mut egui::Ui, on: bool) -> egui::Response {
     let desired_size = egui::vec2(36.0, 20.0);
     let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
-    
-    if ui.is_rect_visible(rect) {
-        let how_on = if on { 1.0 } else { 0.0 }; 
-        let radius = 10.0;
-        
-        let bg_color = if on { egui::Color32::WHITE } else { egui::Color32::from_rgb(38, 38, 38) };
-        ui.painter().rect(rect, radius, bg_color, egui::Stroke::NONE);
 
-        let circle_x = egui::lerp((rect.left() + radius + 2.0)..=(rect.right() - radius - 2.0), how_on);
+    if ui.is_rect_visible(rect) {
+        let how_on = if on { 1.0 } else { 0.0 };
+        let radius = 10.0;
+
+        let bg_color = if on {
+            egui::Color32::WHITE
+        } else {
+            egui::Color32::from_rgb(38, 38, 38)
+        };
+        ui.painter()
+            .rect(rect, radius, bg_color, egui::Stroke::NONE);
+
+        let circle_x = egui::lerp(
+            (rect.left() + radius + 2.0)..=(rect.right() - radius - 2.0),
+            how_on,
+        );
         let center = egui::pos2(circle_x, rect.center().y);
-        
-        let dot_color = if on { egui::Color32::BLACK } else { egui::Color32::from_rgb(156, 163, 175) };
-        ui.painter().circle(center, radius - 4.0, dot_color, egui::Stroke::NONE);
+
+        let dot_color = if on {
+            egui::Color32::BLACK
+        } else {
+            egui::Color32::from_rgb(156, 163, 175)
+        };
+        ui.painter()
+            .circle(center, radius - 4.0, dot_color, egui::Stroke::NONE);
     }
     response
 }

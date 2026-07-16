@@ -17,7 +17,10 @@ pub enum IpcEvent {
     FullState(FullState),
     FcmStatusChanged(bool),
     SteamStatusChanged(bool),
-    ServerStatusChanged { server_ip_port: String, connected: bool },
+    ServerStatusChanged {
+        server_ip_port: String,
+        connected: bool,
+    },
     PendingPairChanged(Option<ServerConfig>),
     DevicesChanged(Vec<DeviceConfig>),
     ServersChanged(Vec<ServerConfig>),
