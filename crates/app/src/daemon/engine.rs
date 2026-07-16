@@ -10,6 +10,7 @@ pub struct DaemonEngine {
     event_tx: mpsc::Sender<DaemonEvent>,
     servers_rx: tokio::sync::watch::Receiver<Vec<crate::config::store::ServerConfig>>,
     steam_rx: tokio::sync::watch::Receiver<bool>,
+    push_restart_rx: tokio::sync::watch::Receiver<u64>,
 }
 
 impl DaemonEngine {
@@ -17,11 +18,13 @@ impl DaemonEngine {
         event_tx: mpsc::Sender<DaemonEvent>,
         servers_rx: tokio::sync::watch::Receiver<Vec<crate::config::store::ServerConfig>>,
         steam_rx: tokio::sync::watch::Receiver<bool>,
+        push_restart_rx: tokio::sync::watch::Receiver<u64>,
     ) -> Self {
         Self {
             event_tx,
             servers_rx,
             steam_rx,
+            push_restart_rx,
         }
     }
 
@@ -29,8 +32,9 @@ impl DaemonEngine {
         let mut tasks = JoinSet::new();
         let push_events = self.event_tx.clone();
         let steam_rx = self.steam_rx.clone();
+        let push_restart_rx = self.push_restart_rx.clone();
         tasks.spawn(async move {
-            crate::daemon::push::run(push_events, steam_rx).await;
+            crate::daemon::push::run(push_events, steam_rx, push_restart_rx).await;
         });
 
         let initial_servers = crate::config::store::Store::get_servers();

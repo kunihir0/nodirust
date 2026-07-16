@@ -16,21 +16,27 @@ use std::thread;
 use tracing_subscriber::EnvFilter;
 
 fn main() -> eframe::Result {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .init();
+    let args: Vec<_> = std::env::args().collect();
+    let default_filter = if args.iter().any(|argument| argument == "--debug") {
+        "info,app=debug,push_receiver=debug,rustplus=debug"
+    } else {
+        "info"
+    };
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
+    tracing_subscriber::fmt().with_env_filter(env_filter).init();
 
     #[cfg(target_os = "macos")]
     if let Err(e) = notify_rust::set_application("com.nodirust.app") {
         tracing::error!("Failed to set macOS notification application: {}", e);
     }
 
-    if std::env::args().any(|a| a == "--auth") {
+    if args.iter().any(|argument| argument == "--auth") {
         crate::ui::auth::spawn_auth_webview();
         std::process::exit(0);
     }
 
-    if std::env::args().any(|a| a == "--ui") {
+    if args.iter().any(|argument| argument == "--ui") {
         return run_ui_process();
     }
 

@@ -81,6 +81,13 @@ fn show_service_health(
             "Receives alarm and pairing events from Rust+.",
             |ui| {
                 let (label, color) = connection_status_display(*app_state.push_status.borrow());
+                if ui
+                    .button("Reconnect")
+                    .on_hover_text("Restart the push stream and register it with Facepunch again")
+                    .clicked()
+                {
+                    app_state.send_command(crate::ipc::IpcCommand::ReconnectPush);
+                }
                 status_badge(ui, label, color);
             },
         );

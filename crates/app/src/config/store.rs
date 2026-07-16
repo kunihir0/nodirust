@@ -152,6 +152,7 @@ impl Store {
         Ok(())
     }
 
+    #[cfg(target_os = "macos")]
     pub fn get_ipc_socket_path() -> std::path::PathBuf {
         if let Some(proj_dirs) = directories::ProjectDirs::from("com", "nodirust", "nodirust") {
             // Use runtime_dir if available (e.g. /run/user/1000 on Linux, missing on macOS)

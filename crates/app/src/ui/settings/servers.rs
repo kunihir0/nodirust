@@ -85,7 +85,7 @@ fn show_server_card(
             egui::Color32::from_rgb(11, 11, 11)
         })
         .stroke(egui::Stroke::new(
-            1.0,
+            1.0_f32,
             if selected {
                 egui::Color32::from_rgb(64, 64, 64)
             } else {

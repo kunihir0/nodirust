@@ -61,7 +61,10 @@ impl SettingsWindow {
         let sidebar_frame = egui::Frame::none()
             .fill(egui::Color32::BLACK)
             .inner_margin(egui::Margin::same(16.0))
-            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(31, 31, 31)));
+            .stroke(egui::Stroke::new(
+                1.0_f32,
+                egui::Color32::from_rgb(31, 31, 31),
+            ));
 
         egui::SidePanel::left("nav_panel")
             .resizable(false)
@@ -119,7 +122,7 @@ impl SettingsWindow {
                 egui::Frame::none()
                     .fill(color.gamma_multiply(0.10))
                     .inner_margin(egui::Margin::symmetric(16.0, 8.0))
-                    .stroke(egui::Stroke::new(1.0, color.gamma_multiply(0.35))),
+                    .stroke(egui::Stroke::new(1.0_f32, color.gamma_multiply(0.35))),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -134,7 +137,8 @@ impl SettingsWindow {
                             .on_hover_text("Dismiss message")
                             .clicked()
                         {
-                            let _ = self.app_state.feedback_tx.send(None);
+                            self.app_state
+                                .send_command(crate::ipc::IpcCommand::DismissFeedback);
                         }
                     });
                 });
@@ -245,7 +249,7 @@ fn nav_button(ui: &mut egui::Ui, text: &str, active: bool) -> egui::Response {
             egui::Color32::TRANSPARENT
         })
         .stroke(if active {
-            egui::Stroke::new(1.0, egui::Color32::from_rgb(48, 48, 48))
+            egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(48, 48, 48))
         } else {
             egui::Stroke::NONE
         });

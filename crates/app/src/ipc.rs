@@ -109,6 +109,8 @@ pub enum IpcCommand {
         enabled: bool,
     },
     RefreshSteamStatus,
+    DismissFeedback,
+    ReconnectPush,
     SignOut,
     DeclinePairing,
     AcceptPairing(ServerConfig),

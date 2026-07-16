@@ -20,6 +20,7 @@ async fn run(app_state: AppState, startup_tx: std::sync::mpsc::Sender<()>) {
         event_tx,
         app_state.servers_rx.clone(),
         app_state.steam_logged_in.clone(),
+        app_state.push_restart_rx.clone(),
     );
     tokio::spawn(engine.run());
     tokio::spawn(crate::daemon::ipc_server::run_ipc_server(app_state.clone()));

@@ -4,7 +4,10 @@ pub fn draw_title_bar(ctx: &egui::Context) {
     let frame = egui::Frame::none()
         .fill(egui::Color32::from_rgb(8, 8, 8))
         .inner_margin(egui::Margin::symmetric(12.0, 5.0))
-        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(31, 31, 31)));
+        .stroke(egui::Stroke::new(
+            1.0_f32,
+            egui::Color32::from_rgb(31, 31, 31),
+        ));
     egui::TopBottomPanel::top("title_bar")
         .frame(frame)
         .exact_height(38.0)

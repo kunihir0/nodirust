@@ -18,6 +18,7 @@ const MAX_BACKOFF: Duration = Duration::from_mins(1);
 pub async fn run(
     event_tx: mpsc::Sender<DaemonEvent>,
     mut steam_rx: tokio::sync::watch::Receiver<bool>,
+    mut restart_rx: tokio::sync::watch::Receiver<u64>,
 ) {
     let mut backoff = Duration::from_secs(1);
     let mut first_attempt = true;
@@ -40,6 +41,16 @@ pub async fn run(
                 if changed.is_err() {
                     return;
                 }
+                None
+            }
+            changed = restart_rx.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+                tracing::info!(
+                    generation = *restart_rx.borrow(),
+                    "Push reconnect requested"
+                );
                 None
             }
         };
@@ -155,19 +166,50 @@ async fn register_with_facepunch(credentials: &FcmCredentials) -> Result<(), Str
 }
 
 async fn process_notification(notification: &Notification, event_tx: &mpsc::Sender<DaemonEvent>) {
+    let app_data_keys: Vec<_> = notification
+        .app_data
+        .iter()
+        .map(|entry| entry.key.as_str())
+        .collect();
+    tracing::debug!(
+        payload_bytes = notification.decrypted.len(),
+        persistent_id_present = notification.persistent_id.is_some(),
+        sent = notification.sent,
+        app_data_keys = ?app_data_keys,
+        "Received push notification from MCS"
+    );
     remember_persistent_id(notification.persistent_id.as_deref());
     if is_stale(notification.sent) {
+        tracing::warn!(sent = notification.sent, "Ignoring stale push notification");
         return;
     }
 
     let (json, fallback_body) = extract_payload(notification);
     let kind = json.as_ref().map_or("", infer_kind);
-    if let Some(event) = json
-        .as_ref()
-        .and_then(|payload| parse_pairing_event(payload, kind))
-    {
-        emit_event(event_tx, event).await;
-        return;
+    if let Some(payload) = json.as_ref() {
+        let payload_keys: Vec<_> = payload
+            .as_object()
+            .map(|object| object.keys().map(String::as_str).collect())
+            .unwrap_or_default();
+        tracing::debug!(kind, payload_keys = ?payload_keys, "Decoded push JSON payload");
+        match parse_pairing_event(payload, kind) {
+            Ok(Some(event)) => {
+                tracing::info!(kind, "Decoded Rust+ pairing notification");
+                emit_event(event_tx, event).await;
+                return;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(kind, %error, "Rejected malformed Rust+ pairing notification");
+                return;
+            }
+        }
+    } else {
+        tracing::warn!(
+            payload_bytes = notification.decrypted.len(),
+            app_data_keys = ?app_data_keys,
+            "Push notification did not contain a JSON payload"
+        );
     }
 
     let endpoint = json.as_ref().and_then(parse_endpoint);
@@ -239,13 +281,32 @@ fn extract_payload(notification: &Notification) -> (Option<Value>, Option<String
     if let Some(text) = decrypted.as_deref()
         && let Ok(json) = serde_json::from_str(text)
     {
-        return (Some(json), None);
+        return (Some(normalize_payload(json)), None);
     }
 
-    let json =
-        app_data_value(notification, "body").and_then(|body| serde_json::from_str(body).ok());
+    let json = app_data_value(notification, "body")
+        .and_then(|body| serde_json::from_str(body).ok())
+        .map(normalize_payload);
     let fallback = decrypted.filter(|text| !text.trim().is_empty());
     (json, fallback)
+}
+
+fn normalize_payload(mut value: Value) -> Value {
+    loop {
+        if let Some(data) = value.get("data").filter(|data| data.is_object()) {
+            value = data.clone();
+            continue;
+        }
+        let nested_body = value
+            .get("body")
+            .and_then(Value::as_str)
+            .and_then(|body| serde_json::from_str(body).ok());
+        if let Some(body) = nested_body {
+            value = body;
+            continue;
+        }
+        return value;
+    }
 }
 
 fn infer_kind(json: &Value) -> &str {
@@ -264,33 +325,66 @@ fn infer_kind(json: &Value) -> &str {
     }
 }
 
-fn parse_pairing_event(json: &Value, kind: &str) -> Option<DaemonEvent> {
-    let (ip, port) = parse_endpoint(json)?;
+fn parse_pairing_event(json: &Value, kind: &str) -> Result<Option<DaemonEvent>, PairingParseError> {
+    if !matches!(kind, "server" | "entity") {
+        return Ok(None);
+    }
+    let (ip, port) = parse_pairing_endpoint(json)?;
     match kind {
-        "server" => Some(DaemonEvent::PairingRequest(ServerConfig {
+        "server" => Ok(Some(DaemonEvent::PairingRequest(ServerConfig {
             ip,
             port,
-            player_id: json.get("playerId").and_then(value_as_u64)?,
-            player_token: json.get("playerToken").and_then(value_as_i32)?,
+            player_id: required_value(json, "playerId", value_as_u64)?,
+            player_token: required_value(json, "playerToken", value_as_i32)?,
             name: json
                 .get("name")
                 .and_then(Value::as_str)
                 .map(std::string::ToString::to_string),
-        })),
-        "entity" => Some(DaemonEvent::EntityPairingRequest(DeviceConfig {
-            entity_id: json.get("entityId").and_then(value_as_u32)?,
+        }))),
+        "entity" => Ok(Some(DaemonEvent::EntityPairingRequest(DeviceConfig {
+            entity_id: required_value(json, "entityId", value_as_u32)?,
             entity_name: json
                 .get("entityName")
                 .and_then(Value::as_str)
                 .unwrap_or("Smart Device")
                 .to_string(),
-            entity_type: json.get("entityType").and_then(value_as_u32)?,
+            entity_type: required_value(json, "entityType", value_as_u32)?,
             server_ip: ip,
             server_port: port,
             enabled: true,
-        })),
-        _ => None,
+        }))),
+        _ => Ok(None),
     }
+}
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+enum PairingParseError {
+    #[error("missing pairing field `{0}`")]
+    MissingField(&'static str),
+    #[error("invalid pairing field `{0}`")]
+    InvalidField(&'static str),
+}
+
+fn required_value<T>(
+    json: &Value,
+    field: &'static str,
+    parse: impl FnOnce(&Value) -> Option<T>,
+) -> Result<T, PairingParseError> {
+    let value = json
+        .get(field)
+        .ok_or(PairingParseError::MissingField(field))?;
+    parse(value).ok_or(PairingParseError::InvalidField(field))
+}
+
+fn parse_pairing_endpoint(json: &Value) -> Result<(String, u16), PairingParseError> {
+    let ip = required_value(json, "ip", |value| {
+        value
+            .as_str()
+            .filter(|address| !address.trim().is_empty())
+            .map(str::to_string)
+    })?;
+    let port = required_value(json, "port", value_as_u16)?;
+    Ok((ip, port))
 }
 
 fn parse_endpoint(json: &Value) -> Option<(String, u16)> {
@@ -398,10 +492,14 @@ fn emit_status(event_tx: &mpsc::Sender<DaemonEvent>, status: ConnectionStatus) {
 
 #[cfg(test)]
 mod tests {
-    use super::{process_notification, should_suppress_alarm};
+    use super::{
+        PairingParseError, normalize_payload, parse_pairing_event, process_notification,
+        should_suppress_alarm,
+    };
     use crate::config::store::DeviceConfig;
     use crate::daemon::events::DaemonEvent;
     use push_receiver::Notification;
+    use serde_json::json;
 
     fn device(entity_id: u32, enabled: bool) -> DeviceConfig {
         DeviceConfig {
@@ -456,6 +554,63 @@ mod tests {
             event,
             Some(DaemonEvent::PushNotificationReceived { title, body })
                 if title == "Smart Alarm" && body == "Your base is under attack!"
+        ));
+    }
+
+    #[tokio::test]
+    async fn forwards_app_data_only_server_pairing() {
+        let notification = Notification {
+            decrypted: Vec::new(),
+            persistent_id: Some("message-id".to_string()),
+            app_data: vec![push_receiver::proto::AppData {
+                key: "body".to_string(),
+                value: r#"{"type":"server","ip":"127.0.0.1","port":"28082","playerId":"76561190000000000","playerToken":"-42","name":"Test Server"}"#.to_string(),
+            }],
+            sent: None,
+        };
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(1);
+
+        process_notification(&notification, &event_tx).await;
+
+        let event = event_rx.recv().await;
+        assert!(matches!(
+            event,
+            Some(DaemonEvent::PairingRequest(server))
+                if server.ip == "127.0.0.1"
+                    && server.port == 28_082
+                    && server.player_token == -42
+        ));
+    }
+
+    #[test]
+    fn unwraps_nested_fcm_data_and_body_payload() {
+        let payload = json!({
+            "data": {
+                "body": r#"{"type":"server","ip":"127.0.0.1"}"#
+            }
+        });
+
+        let normalized = normalize_payload(payload);
+
+        assert_eq!(
+            normalized.get("type").and_then(serde_json::Value::as_str),
+            Some("server")
+        );
+        assert_eq!(
+            normalized.get("ip").and_then(serde_json::Value::as_str),
+            Some("127.0.0.1")
+        );
+    }
+
+    #[test]
+    fn explains_missing_pairing_fields() {
+        let payload = json!({"type": "server", "ip": "127.0.0.1", "port": 28082});
+
+        let result = parse_pairing_event(&payload, "server");
+
+        assert!(matches!(
+            result,
+            Err(PairingParseError::MissingField("playerId"))
         ));
     }
 }

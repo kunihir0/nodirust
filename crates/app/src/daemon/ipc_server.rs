@@ -181,11 +181,23 @@ fn handle_command(cmd: IpcCommand, app_state: &AppState) {
             enabled,
         } => set_device_enabled(&server_ip, server_port, entity_id, enabled, app_state),
         IpcCommand::RefreshSteamStatus => refresh_steam_status(app_state),
+        IpcCommand::DismissFeedback => dismiss_feedback(app_state),
+        IpcCommand::ReconnectPush => reconnect_push(app_state),
         IpcCommand::SignOut => sign_out(app_state),
         IpcCommand::DeclinePairing => decline_pairing(app_state),
         IpcCommand::AcceptPairing(server) => accept_pairing(server, app_state),
         IpcCommand::SendTestNotification => send_test_notification(app_state),
     }
+}
+
+fn dismiss_feedback(app_state: &AppState) {
+    let _ = app_state.feedback_tx.send(None);
+}
+
+fn reconnect_push(app_state: &AppState) {
+    let next_generation = app_state.push_restart_rx.borrow().saturating_add(1);
+    let _ = app_state.push_restart_tx.send(next_generation);
+    send_success(app_state, "Reconnecting the Rust+ push service.");
 }
 
 fn remove_server(ip: &str, port: u16, app_state: &AppState) {
@@ -389,7 +401,8 @@ fn send_error(app_state: &AppState, message: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{remove_server_pairing, upsert_server};
+    use super::{dismiss_feedback, reconnect_push, remove_server_pairing, upsert_server};
+    use crate::app_state::AppState;
     use crate::config::store::{AppConfig, DeviceConfig, ServerConfig};
 
     fn server(ip: &str, port: u16, player_token: i32) -> ServerConfig {
@@ -444,5 +457,26 @@ mod tests {
 
         assert_eq!(servers.len(), 1);
         assert_eq!(servers[0].player_token, 99);
+    }
+
+    #[test]
+    fn dismissing_feedback_clears_daemon_owned_state() {
+        let (state, _commands) = AppState::new(false, Vec::new(), Vec::new());
+        let _ = state
+            .feedback_tx
+            .send(Some(crate::ipc::UiFeedback::success("Saved")));
+
+        dismiss_feedback(&state);
+
+        assert!(state.feedback_rx.borrow().is_none());
+    }
+
+    #[test]
+    fn reconnecting_push_advances_restart_generation() {
+        let (state, _commands) = AppState::new(true, Vec::new(), Vec::new());
+
+        reconnect_push(&state);
+
+        assert_eq!(*state.push_restart_rx.borrow(), 1);
     }
 }

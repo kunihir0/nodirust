@@ -24,6 +24,8 @@ pub struct AppState {
     pub last_event_tx: std::sync::Arc<watch::Sender<Option<crate::ipc::LastEvent>>>,
     pub feedback_rx: watch::Receiver<Option<crate::ipc::UiFeedback>>,
     pub feedback_tx: std::sync::Arc<watch::Sender<Option<crate::ipc::UiFeedback>>>,
+    pub push_restart_rx: watch::Receiver<u64>,
+    pub push_restart_tx: std::sync::Arc<watch::Sender<u64>>,
     pub ui_context: std::sync::Arc<std::sync::Mutex<Option<eframe::egui::Context>>>,
     command_tx: tokio::sync::mpsc::Sender<crate::ipc::IpcCommand>,
 }
@@ -48,6 +50,7 @@ impl AppState {
             watch::channel(std::collections::HashMap::new());
         let (last_event_tx, last_event_rx) = watch::channel(None);
         let (feedback_tx, feedback_rx) = watch::channel(None);
+        let (push_restart_tx, push_restart_rx) = watch::channel(0);
         let (command_tx, command_rx) = tokio::sync::mpsc::channel(100);
 
         let state = Self {
@@ -67,6 +70,8 @@ impl AppState {
             last_event_tx: std::sync::Arc::new(last_event_tx),
             feedback_rx,
             feedback_tx: std::sync::Arc::new(feedback_tx),
+            push_restart_rx,
+            push_restart_tx: std::sync::Arc::new(push_restart_tx),
             ui_context: std::sync::Arc::new(std::sync::Mutex::new(None)),
             command_tx,
         };

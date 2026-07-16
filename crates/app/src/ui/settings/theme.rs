@@ -63,7 +63,10 @@ pub fn apply_theme(ctx: &egui::Context) {
 pub fn card_frame() -> egui::Frame {
     egui::Frame::none()
         .fill(egui::Color32::from_rgb(12, 12, 12))
-        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(38, 38, 38)))
+        .stroke(egui::Stroke::new(
+            1.0_f32,
+            egui::Color32::from_rgb(38, 38, 38),
+        ))
         .rounding(8.0)
         .inner_margin(16.0)
 }
@@ -71,7 +74,7 @@ pub fn card_frame() -> egui::Frame {
 pub fn status_badge(ui: &mut egui::Ui, label: &str, color: egui::Color32) {
     egui::Frame::none()
         .fill(color.gamma_multiply(0.14))
-        .stroke(egui::Stroke::new(1.0, color.gamma_multiply(0.45)))
+        .stroke(egui::Stroke::new(1.0_f32, color.gamma_multiply(0.45)))
         .rounding(12.0)
         .inner_margin(egui::Margin::symmetric(10.0, 4.0))
         .show(ui, |ui| {
@@ -124,9 +127,9 @@ pub fn custom_toggle(ui: &mut egui::Ui, on: &mut bool, label: &str) -> egui::Res
             egui::Color32::from_rgb(52, 52, 52)
         };
         let stroke = if response.has_focus() {
-            egui::Stroke::new(2.0, egui::Color32::from_rgb(125, 180, 255))
+            egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(125, 180, 255))
         } else {
-            egui::Stroke::new(1.0, egui::Color32::from_rgb(90, 90, 90))
+            egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(90, 90, 90))
         };
         ui.painter().rect(rect, radius, bg_color, stroke);
 
