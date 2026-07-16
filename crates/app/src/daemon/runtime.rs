@@ -68,7 +68,9 @@ fn notify_and_record(state: &AppState, title: &str, body: &str) {
     let _ = state
         .last_event_tx
         .send(Some(crate::ipc::LastEvent::new(title, body)));
-    crate::notify::Notifier::push(title, body);
+    if let Err(error) = crate::notify::Notifier::push(title, body) {
+        tracing::error!(%error, "Failed to send system notification");
+    }
 }
 
 fn handle_server_pairing(state: &AppState, server: &crate::config::store::ServerConfig) {

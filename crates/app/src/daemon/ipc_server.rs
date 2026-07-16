@@ -271,14 +271,23 @@ fn upsert_server(
 }
 
 fn send_test_notification(app_state: &AppState) {
-    crate::notify::Notifier::push(
+    let result = crate::notify::Notifier::push(
         "NODIrust test",
         "Desktop notifications are reaching this device.",
     );
-    send_success(
-        app_state,
-        "Test notification sent. Check system settings if it did not appear.",
-    );
+    match result {
+        Ok(()) => send_success(
+            app_state,
+            "Notification submitted. If no banner appears, enable NODIrust in system settings.",
+        ),
+        Err(error) => {
+            tracing::error!(%error, "Failed to send test notification");
+            send_error(
+                app_state,
+                &format!("Could not send test notification: {error}"),
+            );
+        }
+    }
 }
 
 fn send_success(app_state: &AppState, message: &str) {
