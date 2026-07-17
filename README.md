@@ -7,9 +7,13 @@
 A lightweight native companion that watches your paired Rust servers in the background and delivers smart-alarm events through Windows and macOS notifications.
 
 [![Latest release](https://img.shields.io/github/v/release/kunihir0/nodirust?style=flat-square&label=release&color=171717)](https://github.com/kunihir0/nodirust/releases/latest)
-![Windows](https://img.shields.io/badge/Windows-10%2F11-171717?style=flat-square&logo=windows)
+![Windows](https://img.shields.io/badge/Windows-11-171717?style=flat-square&logo=windows)
 ![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon-171717?style=flat-square&logo=apple)
 ![Rust](https://img.shields.io/badge/built%20with-Rust-171717?style=flat-square&logo=rust)
+
+<a href="https://get.microsoft.com/installer/download/9nrhqlj6nmkf?referrer=appbadge" target="_self">
+  <img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Download from the Microsoft Store" width="200">
+</a>
 
 [Download the latest release](https://github.com/kunihir0/nodirust/releases/latest) · [How it works](#how-it-works) · [Build from source](#build-from-source)
 
@@ -48,10 +52,10 @@ Pair your Rust+ server once, leave NODIrust in the system tray, and get a native
 
 Prebuilt releases are available for:
 
-- **Windows 10/11, x86_64** — portable ZIP
+- **[Windows 11, x86_64](https://apps.microsoft.com/detail/9NRHQLJ6NMKF)** — Microsoft Store MSIX
 - **macOS, Apple Silicon** — DMG
 
-Go to the [latest release](https://github.com/kunihir0/nodirust/releases/latest), download the build for your platform, and launch NODIrust. The app will remain accessible from the system tray or macOS menu bar.
+Windows builds are distributed through the [Microsoft Store](https://apps.microsoft.com/detail/9NRHQLJ6NMKF). For macOS, download the DMG from the [latest release](https://github.com/kunihir0/nodirust/releases/latest). NODIrust remains accessible from the system tray or macOS menu bar after launch.
 
 > **Windows fullscreen notifications:** To receive notification banners while using a fullscreen app or playing a game, open **Settings > System > Notifications > Turn on do not disturb automatically**, then clear **When using an app in full-screen mode** and **When playing a game**.
 
