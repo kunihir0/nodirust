@@ -1,4 +1,11 @@
+#[cfg(target_os = "macos")]
+mod macos;
+
+#[cfg(target_os = "windows")]
 use notify_rust::Notification;
+
+#[cfg(target_os = "macos")]
+pub use macos::{delivery_warning, init};
 
 #[cfg(target_os = "windows")]
 const WINDOWS_APP_ID: &str = "kunihir0.NODIrust";
@@ -8,12 +15,39 @@ pub enum NotificationError {
     #[cfg(target_os = "windows")]
     #[error("failed to register the Windows notification identity: {0}")]
     WindowsIdentity(String),
+    #[cfg(target_os = "windows")]
     #[error("the operating system rejected the notification: {0}")]
     Delivery(#[from] notify_rust::error::Error),
+    #[cfg(target_os = "macos")]
+    #[error("NODIrust must run from NODIrust.app for macOS to accept its notifications")]
+    MissingBundle,
+}
+
+/// What a notification means to the user, which decides how insistently it is presented.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotificationKind {
+    /// A live Rust+ smart alarm. On macOS it is Time Sensitive and plays the default sound.
+    Alarm,
+    /// Status and informational events, presented at the platform's default level.
+    Info,
 }
 
 pub struct Notifier;
 
+#[cfg(target_os = "macos")]
+impl Notifier {
+    /// Submits a native notification; clicks are handled by the app-wide delegate.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the process is not running from its app bundle.
+    pub fn push(kind: NotificationKind, title: &str, body: &str) -> Result<(), NotificationError> {
+        macos::push(kind, title, body)
+    }
+}
+
+// Windows toasts do not vary by kind; this path is unchanged from before kinds existed.
+#[cfg(target_os = "windows")]
 impl Notifier {
     /// Submits a native notification and keeps its activation handler alive.
     ///
@@ -21,7 +55,7 @@ impl Notifier {
     ///
     /// Returns an error when the platform identity cannot be registered or the
     /// operating system rejects the notification request.
-    pub fn push(title: &str, body: &str) -> Result<(), NotificationError> {
+    pub fn push(_kind: NotificationKind, title: &str, body: &str) -> Result<(), NotificationError> {
         #[cfg(target_os = "windows")]
         ensure_windows_identity()?;
 
@@ -41,6 +75,7 @@ impl Notifier {
     }
 }
 
+#[cfg(target_os = "windows")]
 fn handle_notification_response(response: &notify_rust::NotificationResponse) {
     if !matches!(*response, notify_rust::NotificationResponse::Default) {
         return;

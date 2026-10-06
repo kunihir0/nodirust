@@ -3,6 +3,7 @@
 pub enum DaemonEvent {
     ConnectionStatusChanged(crate::ipc::ConnectionStatus),
     PushNotificationReceived {
+        kind: crate::notify::NotificationKind,
         title: String,
         body: String,
     },

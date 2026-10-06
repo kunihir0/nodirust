@@ -1,5 +1,6 @@
 use crate::app_state::AppState;
 use crate::daemon::events::DaemonEvent;
+use crate::notify::NotificationKind;
 
 pub fn start(app_state: AppState) -> std::sync::mpsc::Receiver<()> {
     let (startup_tx, startup_rx) = std::sync::mpsc::channel();
@@ -37,8 +38,8 @@ async fn handle_events(mut events: tokio::sync::mpsc::Receiver<DaemonEvent>, sta
 
 fn handle_event(event: DaemonEvent, state: &AppState) {
     match event {
-        DaemonEvent::PushNotificationReceived { title, body } => {
-            notify_and_record(state, &title, &body);
+        DaemonEvent::PushNotificationReceived { kind, title, body } => {
+            notify_and_record(state, kind, &title, &body);
         }
         DaemonEvent::ServerChatReceived {
             server_ip,
@@ -47,7 +48,7 @@ fn handle_event(event: DaemonEvent, state: &AppState) {
         } => {
             let title = format!("Team Chat ({server_ip})");
             let body = format!("{sender}: {message}");
-            notify_and_record(state, &title, &body);
+            notify_and_record(state, NotificationKind::Info, &title, &body);
         }
         DaemonEvent::PairingRequest(server) => handle_server_pairing(state, &server),
         DaemonEvent::EntityPairingRequest(device) => handle_device_pairing(state, device),
@@ -77,11 +78,11 @@ fn handle_event(event: DaemonEvent, state: &AppState) {
     }
 }
 
-fn notify_and_record(state: &AppState, title: &str, body: &str) {
+fn notify_and_record(state: &AppState, kind: NotificationKind, title: &str, body: &str) {
     let _ = state
         .last_event_tx
         .send(Some(crate::ipc::LastEvent::new(title, body)));
-    if let Err(error) = crate::notify::Notifier::push(title, body) {
+    if let Err(error) = crate::notify::Notifier::push(kind, title, body) {
         tracing::error!(%error, "Failed to send system notification");
     }
 }
@@ -93,7 +94,7 @@ fn handle_server_pairing(state: &AppState, server: &crate::config::store::Server
         "New pairing request for {}:{}. Open settings to accept.",
         server.ip, server.port
     );
-    notify_and_record(state, "Rust+ Server Pairing", &body);
+    notify_and_record(state, NotificationKind::Info, "Rust+ Server Pairing", &body);
 }
 
 fn handle_device_pairing(state: &AppState, device: crate::config::store::DeviceConfig) {
@@ -122,6 +123,7 @@ fn handle_device_pairing(state: &AppState, device: crate::config::store::DeviceC
     let _ = state.devices_tx.send(devices);
     notify_and_record(
         state,
+        NotificationKind::Info,
         "Rust+ Device Paired",
         &format!("Successfully paired with {name}!"),
     );

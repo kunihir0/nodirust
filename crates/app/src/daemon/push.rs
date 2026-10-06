@@ -1,6 +1,7 @@
 use crate::config::store::{DeviceConfig, FcmCredentials, ServerConfig, Store};
 use crate::daemon::events::DaemonEvent;
 use crate::ipc::ConnectionStatus;
+use crate::notify::NotificationKind;
 use push_receiver::{Notification, PushReceiver};
 use serde_json::Value;
 use std::time::Duration;
@@ -227,9 +228,14 @@ async fn process_notification(notification: &Notification, event_tx: &mpsc::Send
     }
 
     let (title, body) = notification_text(notification, json.as_ref(), kind, fallback_body);
+    let kind = if kind == "alarm" {
+        NotificationKind::Alarm
+    } else {
+        NotificationKind::Info
+    };
     emit_event(
         event_tx,
-        DaemonEvent::PushNotificationReceived { title, body },
+        DaemonEvent::PushNotificationReceived { kind, title, body },
     )
     .await;
 }
@@ -498,6 +504,7 @@ mod tests {
     };
     use crate::config::store::DeviceConfig;
     use crate::daemon::events::DaemonEvent;
+    use crate::notify::NotificationKind;
     use push_receiver::Notification;
     use serde_json::json;
 
@@ -552,8 +559,30 @@ mod tests {
         let event = event_rx.recv().await;
         assert!(matches!(
             event,
-            Some(DaemonEvent::PushNotificationReceived { title, body })
-                if title == "Smart Alarm" && body == "Your base is under attack!"
+            Some(DaemonEvent::PushNotificationReceived { kind, title, body })
+                if kind == NotificationKind::Alarm
+                    && title == "Smart Alarm"
+                    && body == "Your base is under attack!"
+        ));
+    }
+
+    #[tokio::test]
+    async fn forwards_non_alarm_push_as_info() {
+        let notification = Notification {
+            decrypted: br#"{"type":"team","title":"Team","message":"Teammate is online"}"#.to_vec(),
+            persistent_id: None,
+            app_data: Vec::new(),
+            sent: None,
+        };
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(1);
+
+        process_notification(&notification, &event_tx).await;
+
+        let event = event_rx.recv().await;
+        assert!(matches!(
+            event,
+            Some(DaemonEvent::PushNotificationReceived { kind, .. })
+                if kind == NotificationKind::Info
         ));
     }
 

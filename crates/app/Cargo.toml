@@ -31,17 +31,24 @@ tray-icon = "0.19"
 wry = "0.48"
 
 # OS Integrations
-notify-rust = "4.11"
 winit = "0.30"
 directories = "6.0.0"
 uuid = { workspace = true, features = ["v4"] }
 image = { version = "0.25.10", default-features = false, features = ["ico"] }
 mimalloc = "0.1.52"
 
+# macOS talks to UNUserNotificationCenter directly: notify-rust 4.x cannot request
+# UNNotificationSound.defaultSound, read timeSensitiveSetting, or observe clicks
+# without parking one OS thread per notification. These objc2 crates are already
+# in the macOS graph via winit/wry/tray-icon.
 [target.'cfg(target_os = "macos")'.dependencies]
-mac-notification-sys = "0.6.15"
+objc2 = "0.6.4"
+block2 = "0.6.2"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSBundle", "NSError", "NSString"] }
+objc2-user-notifications = { version = "0.3.2", default-features = false, features = ["std", "block2", "bitflags", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSettings", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+notify-rust = "4.11"
 windows-registry = "0.6.1"
 
 [build-dependencies]

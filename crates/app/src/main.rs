@@ -26,11 +26,6 @@ fn main() -> eframe::Result {
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
 
-    #[cfg(target_os = "macos")]
-    if let Err(e) = notify_rust::set_application("com.nodirust.app") {
-        tracing::error!("Failed to set macOS notification application: {}", e);
-    }
-
     if args.iter().any(|argument| argument == "--auth") {
         crate::ui::auth::spawn_auth_webview();
         std::process::exit(0);
@@ -111,6 +106,8 @@ fn run_ui_process() -> eframe::Result {
 
 fn run_daemon_process() {
     tracing::info!("Starting NODIrust Background Daemon");
+    #[cfg(target_os = "macos")]
+    crate::notify::init();
     let (app_state, _command_rx) = create_app_state();
     let startup = crate::daemon::runtime::start(app_state);
     if startup.recv().is_err() {

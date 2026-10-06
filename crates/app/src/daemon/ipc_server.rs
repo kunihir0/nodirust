@@ -371,12 +371,14 @@ fn upsert_server(
 }
 
 fn send_test_notification(app_state: &AppState) {
-    let result = crate::notify::Notifier::push("Smart Alarm", "Your base is under attack!");
+    // The test exercises the real alarm path so it proves alarm delivery, not just any toast.
+    let result = crate::notify::Notifier::push(
+        crate::notify::NotificationKind::Alarm,
+        "Smart Alarm",
+        "Your base is under attack!",
+    );
     match result {
-        Ok(()) => send_success(
-            app_state,
-            "Notification submitted. If no banner appears, enable NODIrust in system settings.",
-        ),
+        Ok(()) => report_test_notification(app_state),
         Err(error) => {
             tracing::error!(%error, "Failed to send test notification");
             send_error(
@@ -385,6 +387,28 @@ fn send_test_notification(app_state: &AppState) {
             );
         }
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn report_test_notification(app_state: &AppState) {
+    send_success(
+        app_state,
+        "Notification submitted. If no banner appears, enable NODIrust in system settings.",
+    );
+}
+
+#[cfg(target_os = "macos")]
+fn report_test_notification(app_state: &AppState) {
+    let app_state = app_state.clone();
+    tokio::spawn(async move {
+        match crate::notify::delivery_warning().await {
+            Some(warning) => send_error(&app_state, warning),
+            None => send_success(
+                &app_state,
+                "Test alarm submitted with sound. If it was held back, check Focus settings.",
+            ),
+        }
+    });
 }
 
 fn send_success(app_state: &AppState, message: &str) {
