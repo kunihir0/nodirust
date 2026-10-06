@@ -53,6 +53,10 @@ jobs:
             echo "Could not read the application version from crates/app/Cargo.toml." >&2
             exit 1
           fi
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "Release tag $GITHUB_REF_NAME does not match application version $version." >&2
+            exit 1
+          fi
 
           mkdir -p "NODIrust.app/Contents/MacOS"
           mkdir -p "NODIrust.app/Contents/Resources"
